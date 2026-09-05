@@ -1,30 +1,30 @@
 # 012 · Put the project under git
 
-**Status:** Open — blocks `cpush`
+**Status:** Done
 
-The working tree is not a git repository. `git rev-parse --is-inside-work-tree`
-fails, there is no `.git/`, and there is no remote.
+The working tree is now a git repository, pushed to
+`https://github.com/connect-ad/agent-drive` (branch `main`, 217 files).
 
-Everything built so far — 11 spec documents, the 96-file design-system mirror,
-the whole `apps/web` source tree — exists only as untracked files on one
-machine. There is no history, so no diff to review and nothing to roll back to.
+Decisions made while closing this:
 
-This also disables two of the project's own commands:
+- **`design-system/` is tracked, not ignored.** It is a byte-verified mirror of
+  Claude Design project `d311bfd0`, so tracking it means a diff catches any
+  accidental edit to files that are supposed to be read-only. That protection is
+  worth the 532 KB.
+- **`.gitattributes` pins line endings.** Git on this machine converts LF to
+  CRLF on checkout, which would have silently broken the byte-verification the
+  moment anyone re-cloned. `* text=auto eol=lf` covers the repo, and
+  `design-system/** -text` exempts the mirror from conversion entirely.
+- **`.gitignore` covers** `node_modules/`, `apps/web/dist/`, logs and OS cruft.
+  The 48 MB of installed dependencies stays out.
 
-- [`cpush`](../.claude/commands/cpush.md) cannot run at all. It commits, tags
-  and pushes.
-- [`cpack`](../.claude/commands/cpack.md) runs, but degraded: steps 2-5 of its
-  Gather phase (`git status`, `git diff`, `git diff --staged`, `git log`) have
-  no output, so it loses the evidence it prefers over conversation.
+A secret scan ran before the first push. Every credential-shaped string in the
+tree (`ad_live_…`, `whsec_…`) is mock data in a UI screen for a product with no
+backend — there were no real credentials, no `.env`, and no key material.
 
-To close this:
+**The repository is public.** That was its existing setting, not a choice made
+here. `gh repo edit connect-ad/agent-drive --visibility private` flips it.
 
-1. `git init`, then add a `.gitignore` covering at least `node_modules/` and
-   `apps/web/dist/`.
-2. Commit the current tree as a baseline.
-3. Add a remote, and push.
-
-Decide before the first commit whether `design-system/` is tracked. It is a
-byte-verified mirror of Claude Design project `d311bfd0`, so tracking it gives a
-diff that would catch accidental edits to files that are supposed to be
-read-only — the argument for committing it rather than ignoring it.
+Both [`cpack`](../.claude/commands/cpack.md) and
+[`cpush`](../.claude/commands/cpush.md) are now fully operational — the git
+sources they read all resolve, and there is a remote to push to.

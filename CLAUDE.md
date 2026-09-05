@@ -18,7 +18,7 @@ task.
 | `apps/web/` | The dashboard SPA | `src/components/` is vendored from `design-system/`; `src/components/index.js` is generated. Hand-written code lives in `src/routes/` and `src/components-local/`. |
 | `backlog/` | Outstanding tasks, `NNN-<slug>.md` | Status lives in the file; a finished item stays as a record. |
 | `.design-sync/` | Sync state and hard-won process notes | `config.json` pins the Claude Design project. `NOTES.md` holds gotchas that cost real time — read it before any file transfer. |
-| `.claude/commands/` | Custom slash commands, `<name>.md` | [`cpack`](.claude/commands/cpack.md) persists session knowledge into the docs below; [`cpush`](.claude/commands/cpush.md) commits and tags. `cpush` needs git — see [012](backlog/012-initialise-git.md). |
+| `.claude/commands/` | Custom slash commands, `<name>.md` | [`cpack`](.claude/commands/cpack.md) persists session knowledge into the docs below; [`cpush`](.claude/commands/cpush.md) commits and tags. Both are auto-discovered by Claude Code; no registration step. |
 | `Worlflow.md` | The handoff diagram | Filename typo is known — see [011](backlog/011-rename-workflow-file.md). |
 
 This page is the only index — no folder carries its own `README.md`.
@@ -92,7 +92,7 @@ provenance), `ApiKeyDisplay` (show-once), `PermissionSelector` (least privilege)
 | 009 | [Wire screens to the API](backlog/009-wire-screens-to-api.md) | Open — blocked by 008 |
 | 010 | [Test suite](backlog/010-test-suite.md) | Open |
 | 011 | [Rename `Worlflow.md`](backlog/011-rename-workflow-file.md) | Open — trivial |
-| 012 | [Put the project under git](backlog/012-initialise-git.md) | Open — blocks `cpush` |
+| 012 | [Put the project under git](backlog/012-initialise-git.md) | Done |
 
 ---
 

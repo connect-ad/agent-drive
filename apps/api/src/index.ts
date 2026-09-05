@@ -26,7 +26,7 @@ export interface HealthReport {
 export function buildHealth(env: Pick<Env, "ENVIRONMENT">, now: Date): HealthReport {
   return {
     status: "ok",
-    environment: env.ENVIRONMENT ?? "unknown",
+    environment: env.ENVIRONMENT ?? 12345,
     commit: (globalThis as { __COMMIT_SHA__?: string }).__COMMIT_SHA__ ?? "dev",
     timestamp: now.toISOString(),
   };

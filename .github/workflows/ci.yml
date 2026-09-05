@@ -7,6 +7,9 @@ on:
     branches: [main]
   push:
     branches: [dev]
+  # Lets a plan be run on demand against any branch, so infrastructure changes
+  # can be reviewed before anything is applied.
+  workflow_dispatch:
 
 # A newer push supersedes an in-flight run on the same ref.
 concurrency:
@@ -86,7 +89,7 @@ jobs:
     name: Terraform plan (${{ matrix.workspace }})
     if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
-    environment: Development
+    environment: dev
     strategy:
       fail-fast: false
       matrix:
@@ -96,11 +99,12 @@ jobs:
         working-directory: infra/terraform
         shell: bash
     env:
-      AWS_ACCESS_KEY_ID: ${{ secrets.TF_STATE_R2_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.TF_STATE_R2_SECRET_ACCESS_KEY }}
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      TF_VAR_account_id: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      TF_VAR_zone_id: ${{ secrets.CLOUDFLARE_ZONE_ID }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.R2_STATE_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_STATE_SECRET_ACCESS_KEY }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.TERRAFORM_CF_ACCESS_TOKEN }}
+      TF_VAR_account_id: ${{ vars.CF_ACCOUNT_ID }}
+      TF_VAR_zone_id: ${{ vars.CF_ZONE_ID }}
+      TF_VAR_root_domain: ${{ vars.DOMAIN_NAME }}
     steps:
       - uses: actions/checkout@v4
 
@@ -113,8 +117,9 @@ jobs:
         run: |
           set -euo pipefail
           cat > backend.hcl <<EOF
+          bucket = "${{ vars.TFSTATE_BUCKET }}"
           endpoints = {
-            s3 = "https://${{ secrets.CLOUDFLARE_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+            s3 = "https://${{ vars.CF_ACCOUNT_ID }}.r2.cloudflarestorage.com"
           }
           EOF
 

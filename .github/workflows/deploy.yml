@@ -8,11 +8,9 @@ on:
   workflow_call:
     inputs:
       environment:
-        description: GitHub Environment name (Development or Production).
-        required: true
-        type: string
-      workspace:
-        description: Terraform workspace and resource environment (dev or prod).
+        description: Environment name. Doubles as the GitHub Environment AND the
+          Terraform workspace, which are deliberately the same string (dev/prod)
+          so there is no mapping table to get wrong.
         required: true
         type: string
 
@@ -64,14 +62,26 @@ jobs:
       run:
         shell: bash
     env:
-      AWS_ACCESS_KEY_ID: ${{ secrets.TF_STATE_R2_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.TF_STATE_R2_SECRET_ACCESS_KEY }}
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      TF_VAR_account_id: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      TF_VAR_zone_id: ${{ secrets.CLOUDFLARE_ZONE_ID }}
-      WORKSPACE: ${{ inputs.workspace }}
+      # Infrastructure credentials are repository-level secrets: one set, shared
+      # by both environments. Application secrets further down are
+      # environment-level, so dev and prod never share a runtime key.
+      AWS_ACCESS_KEY_ID: ${{ secrets.R2_STATE_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_STATE_SECRET_ACCESS_KEY }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.TERRAFORM_CF_ACCESS_TOKEN }}
+
+      # Non-secret configuration comes from variables, never secrets: repository
+      # variables for what is identical across environments, environment
+      # variables for what differs.
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CF_ACCOUNT_ID }}
+      TF_VAR_account_id: ${{ vars.CF_ACCOUNT_ID }}
+      TF_VAR_zone_id: ${{ vars.CF_ZONE_ID }}
+      TF_VAR_root_domain: ${{ vars.DOMAIN_NAME }}
+      TFSTATE_BUCKET: ${{ vars.TFSTATE_BUCKET }}
+
+      WORKSPACE: ${{ inputs.environment }}
       ENVIRONMENT_NAME: ${{ inputs.environment }}
+      EXPECTED_D1_DATABASE: ${{ vars.D1_DATABASE }}
+      EXPECTED_API_DOMAIN: ${{ vars.API_DOMAIN }}
 
     steps:
       - uses: actions/checkout@v4
@@ -91,22 +101,28 @@ jobs:
         run: |
           set -euo pipefail
           missing=""
-          for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID TF_VAR_zone_id AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY; do
+          for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID TF_VAR_zone_id TF_VAR_root_domain TFSTATE_BUCKET EXPECTED_D1_DATABASE EXPECTED_API_DOMAIN AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY; do
             if [ -z "${!name:-}" ]; then
               missing="$missing $name"
             fi
           done
           if [ -n "$missing" ]; then
-            echo "::error::Missing secrets in the $ENVIRONMENT_NAME environment:$missing"
+            echo "::error::Missing secrets or variables for the $ENVIRONMENT_NAME environment:$missing"
             exit 1
           fi
-          echo "All required infrastructure secrets are present."
+          echo "All required infrastructure secrets and variables are present."
 
       - name: Write Terraform backend config
         working-directory: infra/terraform
         run: |
           set -euo pipefail
-          printf 'endpoints = {\n  s3 = "https://%s.r2.cloudflarestorage.com"\n}\n' "$CLOUDFLARE_ACCOUNT_ID" > backend.hcl
+          cat > backend.hcl <<EOF
+          bucket = "${TFSTATE_BUCKET}"
+          endpoints = {
+            s3 = "https://${CLOUDFLARE_ACCOUNT_ID}.r2.cloudflarestorage.com"
+          }
+          EOF
+          echo "State bucket: $TFSTATE_BUCKET (key: $WORKSPACE/terraform.tfstate)"
 
       - name: Terraform init
         working-directory: infra/terraform
@@ -144,8 +160,26 @@ jobs:
             echo "::error::State reports environment '$reported', expected '$WORKSPACE'."
             exit 1
           fi
-          echo "API_URL=$(terraform output -raw api_url)" >> "$GITHUB_ENV"
-          echo "D1_NAME=$(terraform output -raw d1_database_name)" >> "$GITHUB_ENV"
+          api_url="$(terraform output -raw api_url)"
+          d1_name="$(terraform output -raw d1_database_name)"
+
+          # Terraform derives resource names from the workspace; the environment
+          # variables above state them independently. Two sources of truth would
+          # normally invite silent drift, so assert they agree rather than
+          # trusting them to. A mismatch means the GitHub environment and the
+          # infrastructure disagree about what is being deployed - stop.
+          if [ "$d1_name" != "$EXPECTED_D1_DATABASE" ]; then
+            echo "::error::Terraform built D1 '$d1_name' but the $ENVIRONMENT_NAME environment expects '$EXPECTED_D1_DATABASE'."
+            exit 1
+          fi
+          if [ "$api_url" != "https://$EXPECTED_API_DOMAIN" ]; then
+            echo "::error::Terraform routed the API to '$api_url' but the $ENVIRONMENT_NAME environment expects 'https://$EXPECTED_API_DOMAIN'."
+            exit 1
+          fi
+          echo "Names agree with the $ENVIRONMENT_NAME environment variables."
+
+          echo "API_URL=$api_url" >> "$GITHUB_ENV"
+          echo "D1_NAME=$d1_name" >> "$GITHUB_ENV"
 
       - name: Install app dependencies
         working-directory: apps/api

@@ -151,12 +151,23 @@ with a lockout countdown, non-committal forgot-password, reveal-once secrets
 requiring explicit acknowledgment, MCP snippets defaulting to a placeholder key,
 and webhook failure detail that never renders headers.
 
-Infrastructure and CI/CD are written and verified as far as they can be without
-live credentials: the Terraform module plans to the correct 9 resources in both
-workspaces, `terraform validate` and `fmt -check` are clean, all four workflows
-parse, and `apps/api` passes lint, typecheck, test and build. **Nothing has been
-applied to Cloudflare yet** — that needs the API token, account ID and R2 state
-credentials, which only a human can create.
+**Dev is live.** `https://api-dev.agentdisk.io/v1/healthz` and
+`mcp-dev.agentdisk.io` both answer, served by `agentdisk-dev-api` over
+Terraform-managed custom domains. The full loop runs unattended: push to `dev` →
+verify → `terraform apply` → migrations → `wrangler deploy` → smoke test.
+
+Nine resources exist in the `dev` workspace (D1, R2, KV, jobs queue + DLQ, the
+Worker, two custom domains, and the workspace guard), with state in
+`agentdisk-tfstate` under `dev/terraform.tfstate` and native R2 locking
+confirmed working. **Prod has never been applied** — the `prod` workspace is
+empty, gated behind a PR into `main` plus the required-reviewer approval.
+
+Three faults were found only by running it, not by planning it: `wrangler deploy`
+refuses a declared queue consumer when the Worker exports no `queue` handler;
+Wrangler silently enables `workers.dev`, publishing a second public hostname that
+bypasses the custom domains; and `cloudflare_d1_database` sends
+`read_replication: null` on update, so apply succeeds once and fails on every
+run after. All three are fixed and commented where they bite.
 
 One gap in the plan itself: `docs/design/11-backend-implementation-prompt.md` is
 referenced by docs 12 and 13 as the source of the application build, but **it does

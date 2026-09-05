@@ -34,6 +34,20 @@ locals {
 resource "cloudflare_d1_database" "main" {
   account_id = var.account_id
   name       = "${local.prefix}-db"
+
+  # Must be set explicitly, not left to default. Omitted, the provider sends
+  # `read_replication: null` on any in-place update and Cloudflare rejects the
+  # request with "Expected object, received null" (code 7400). Creation still
+  # succeeds, so the failure only appears on the SECOND apply - which is exactly
+  # when a routine deploy would hit it.
+  #
+  # "disabled" rather than "auto": read replicas are eventually consistent, and
+  # a file-metadata store that answers a read-after-write with stale data would
+  # surface as files briefly vanishing after upload. There is no scale argument
+  # for replicas at MVP. Revisit when read volume actually justifies it.
+  read_replication = {
+    mode = "disabled"
+  }
 }
 
 # ------------------------------------------------------------------ R2 ---

@@ -92,7 +92,12 @@ jobs:
     # plan there would always fail.
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
-    environment: dev
+    # Deliberately NOT scoped to a GitHub Environment. Everything a plan needs
+    # - the Terraform token, the R2 state credentials, the account/zone/domain
+    # - lives at repository level, so the plan runs on any branch. Declaring
+    # `environment: dev` here would subject it to that environment's deployment
+    # branch policy and block plans from feature branches, which is exactly
+    # where a plan is most useful.
     strategy:
       fail-fast: false
       matrix:

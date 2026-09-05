@@ -16,12 +16,15 @@ task.
 | `docs/design/` | The specification, `NN-<slug>.md` | 11 documents, PART 1–26. The product's design authority — but see the precedence rule below. |
 | `design-system/` | Upstream mirror of the Claude Design project | **Read-only.** Byte-identical to the remote (96/96). Changes go into Claude Design, then re-import — never edit here. |
 | `apps/web/` | The dashboard SPA | `src/components/` is vendored from `design-system/`; `src/components/index.js` is generated. Hand-written code lives in `src/routes/` and `src/components-local/`. |
+| `Skill/` | Reusable how-to knowledge, `<N> <Name>.md` | Procedures, commands and their calibration. Not the specification — that is `docs/design/`. |
 | `backlog/` | Outstanding tasks, `NNN-<slug>.md` | Status lives in the file; a finished item stays as a record. |
 | `.design-sync/` | Sync state and hard-won process notes | `config.json` pins the Claude Design project. `NOTES.md` holds gotchas that cost real time — read it before any file transfer. |
 | `.claude/commands/` | Custom slash commands, `<name>.md` | [`cpack`](.claude/commands/cpack.md) persists session knowledge into the docs below; [`cpush`](.claude/commands/cpush.md) commits and tags. Both are auto-discovered by Claude Code; no registration step. |
 | `Worlflow.md` | The handoff diagram | Filename typo is known — see [011](backlog/011-rename-workflow-file.md). |
 
-This page is the only index — no folder carries its own `README.md`.
+This page is the only index — no folder carries its own `README.md`. The root
+`README.md` is a symlink to this file, so GitHub renders it; never write to it
+directly.
 
 ### Precedence
 
@@ -77,6 +80,12 @@ The AgentDrive-specific components carry the product thesis: `FileCell` (agent
 provenance), `ApiKeyDisplay` (show-once), `PermissionSelector` (least privilege),
 `McpToolList` (per-tool scopes), `ActivityRow` (agent vs human actors).
 
+### Skills — [Skill/](Skill/)
+
+| # | Document | Covers |
+|---|---|---|
+| 1 | [Build](Skill/1%20Build.md) | Toolchain, run/build commands, the expected build baseline, barrel regeneration, adherence checks and their calibration, why there is no test or deploy step yet |
+
 ### Backlog — [backlog/](backlog/)
 
 | # | Item | Status |
@@ -107,8 +116,10 @@ workspace app, the MVP-1 surfaces, and the error pages. Doc 03 §8.31's three
 intentionally-unbuilt screens were skipped as specified.
 
 Every screen composes design-system components exclusively and styles only with
-`var(--*)` tokens — verified: zero raw hex, zero hardcoded px, zero imports
-bypassing the barrel. Every sidebar nav item resolves to a real route.
+`var(--*)` tokens — verified: zero raw hex, zero imports bypassing the barrel,
+and no px carrying spacing or sizing. See [Skill/1 Build](Skill/1%20Build.md)
+for what the adherence config actually checks, and why two `1px` hairlines are
+not violations. Every sidebar nav item resolves to a real route.
 
 Two honest caveats. The screens are **build-verified, not screenshot-verified** —
 they have never been rendered in a browser ([007](backlog/007-browser-verify-screens.md)).

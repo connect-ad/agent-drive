@@ -15,6 +15,14 @@ main = "src/index.ts"
 compatibility_date = "2026-08-01"
 compatibility_flags = ["nodejs_compat"]
 
+# The custom domains Terraform creates (api./mcp.) are the only intended entry
+# points. Left unset, Wrangler enables workers.dev and Preview URLs by default,
+# which publishes the Worker on a second, unversioned public hostname that
+# bypasses those domains entirely - and on prod would expose customer data on a
+# URL nobody is watching.
+workers_dev = false
+preview_urls = false
+
 # ---------------------------------------------------------------- dev ---
 [env.dev]
 name = "agentdisk-dev-api"

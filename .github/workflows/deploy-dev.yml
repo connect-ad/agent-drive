@@ -18,6 +18,5 @@ jobs:
   deploy:
     uses: ./.github/workflows/deploy.yml
     with:
-      environment: Development
-      workspace: dev
+      environment: dev
     secrets: inherit

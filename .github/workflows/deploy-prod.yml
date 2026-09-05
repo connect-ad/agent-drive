@@ -19,6 +19,5 @@ jobs:
     # thing between a merged PR and live customer data.
     uses: ./.github/workflows/deploy.yml
     with:
-      environment: Production
-      workspace: prod
+      environment: prod
     secrets: inherit

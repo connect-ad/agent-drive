@@ -1,0 +1,12 @@
+# Copy to backend.hcl and fill in, or let CI generate it from Environment
+# secrets. backend.hcl itself is git-ignored — it contains your account ID.
+#
+#   terraform init -backend-config=backend.hcl
+#
+# Credentials are NOT set here. Terraform reads the R2 S3 token from the
+# environment: AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY, populated from
+# TF_STATE_R2_ACCESS_KEY_ID / TF_STATE_R2_SECRET_ACCESS_KEY.
+
+endpoints = {
+  s3 = "https://<CLOUDFLARE_ACCOUNT_ID>.r2.cloudflarestorage.com"
+}

@@ -15,6 +15,9 @@ task.
 | `CLAUDE.md` | This route and the catalog | Source of truth for *where things are*. Not a duplicate of the specs. |
 | `docs/design/` | The specification, `NN-<slug>.md` | 11 documents, PART 1–26. The product's design authority — but see the precedence rule below. |
 | `design-system/` | Upstream mirror of the Claude Design project | **Read-only.** Byte-identical to the remote (96/96). Changes go into Claude Design, then re-import — never edit here. |
+| `apps/api/` | The Cloudflare Worker: REST + MCP, one deployable | Skeleton only — `/v1/healthz` and a bootstrap migration, so the pipeline has something real to ship. App logic comes from doc 11. |
+| `infra/terraform/` | All infrastructure as code | One root config, one module, **one workspace per environment** (`dev`, `prod`). No `environments/` directories — see the workspace note below. |
+| `.github/workflows/` | CI and deployment pipelines | `ci.yml` gates PRs; `deploy-dev.yml`/`deploy-prod.yml` are thin callers of the shared `deploy.yml`, so prod can never drift from dev. |
 | `apps/web/` | The dashboard SPA | `src/components/` is vendored from `design-system/`; `src/components/index.js` is generated. Hand-written code lives in `src/routes/` and `src/components-local/`. |
 | `Skill/` | Reusable how-to knowledge, `<N> <Name>.md` | Procedures, commands and their calibration. Not the specification — that is `docs/design/`. |
 | `backlog/` | Outstanding tasks, `NNN-<slug>.md` | Status lives in the file; a finished item stays as a record. |
@@ -43,6 +46,20 @@ were not touched. See [002](backlog/002-reconcile-brand-drift.md).
 - **No raw hex, no hardcoded px.** Style with `var(--*)` tokens. Same lint config.
 - **Colour never carries meaning alone** — every status pairs a tone with a word.
 - Regenerate the barrel from `_ds_manifest.json`; never hand-edit it.
+- **Terraform selects a workspace; it never runs in `default`.** Environments are
+  workspaces (`dev`, `prod`) sharing one `agentdisk-tfstate` bucket, not separate
+  directories. A `terraform_data` precondition hard-fails any other workspace, and
+  CI re-asserts `terraform workspace show` after selecting and before applying —
+  because workspace selection is mutable CLI state and a stale selection is the one
+  way this layout can apply dev intent to prod resources.
+- **Terraform >= 1.11 is mandatory, not a preference.** Native S3-backend locking
+  (`use_lockfile`) is the only locking that works against R2, and it went GA in 1.11.
+  On 1.6.x the backend silently runs with *no* locking at all.
+- **No secret ever enters Terraform.** State is plaintext even remotely. App secrets
+  reach Cloudflare only via `wrangler secret put` in CI, sourced from GitHub
+  Environment secrets.
+- **Resource IDs are never typed by hand.** CI injects them into `wrangler.toml`
+  from `terraform output -json`; the committed file holds `TF_OUTPUT_*` placeholders.
 
 ---
 
@@ -63,6 +80,8 @@ were not touched. See [002](backlog/002-reconcile-brand-drift.md).
 | 08 | [Claude Code prompt](docs/design/08-claude-code-prompt.md) | Hands-off build prompt — start the backend with this |
 | 09 | [Test strategy](docs/design/09-test-strategy-and-failure-modes.md) | 21 security test cases, failure modes, backup |
 | 10 | [CI/CD, roadmap, ADRs](docs/design/10-cicd-docs-roadmap-and-recommendation.md) | Pipelines, 12-phase roadmap, 8 ADRs |
+| 12 | [Deployment roadmap · agentdisk.io](docs/design/12-deployment-roadmap-agentdisk-io.md) | The 29-step plan: naming, phases A–G, open decisions |
+| 13 | [Infra & CI/CD prompt](docs/design/13-infra-cicd-implementation-prompt.md) | Executes doc 12 — Terraform, GitHub, Actions. Hands off to doc 11 |
 
 ### Design system — [design-system/](design-system/)
 
@@ -107,7 +126,7 @@ provenance), `ApiKeyDisplay` (show-once), `PermissionSelector` (least privilege)
 
 ## Status
 
-**The UI is built. The backend does not exist.**
+**The UI is built. The deployment pipeline is built. The backend does not exist yet.**
 
 `cd apps/web && npm install && npm run build` is clean — 81 modules, ~1.3 MB
 dist, 15 route files, ~3,150 lines of app source. All 31 buildable screens from
@@ -131,6 +150,17 @@ Security behaviour is implemented rather than decorative: generic login failure
 with a lockout countdown, non-committal forgot-password, reveal-once secrets
 requiring explicit acknowledgment, MCP snippets defaulting to a placeholder key,
 and webhook failure detail that never renders headers.
+
+Infrastructure and CI/CD are written and verified as far as they can be without
+live credentials: the Terraform module plans to the correct 9 resources in both
+workspaces, `terraform validate` and `fmt -check` are clean, all four workflows
+parse, and `apps/api` passes lint, typecheck, test and build. **Nothing has been
+applied to Cloudflare yet** — that needs the API token, account ID and R2 state
+credentials, which only a human can create.
+
+One gap in the plan itself: `docs/design/11-backend-implementation-prompt.md` is
+referenced by docs 12 and 13 as the source of the application build, but **it does
+not exist in this repo**.
 
 Next: [008 · Backend](backlog/008-backend.md), which blocks any deploy — hand
 [doc 08](docs/design/08-claude-code-prompt.md) to Claude Code to start. Cheap

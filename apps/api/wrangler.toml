@@ -1,0 +1,72 @@
+# AgentDrive API Worker.
+#
+# Resource IDs below are placeholders. They are NOT secrets — they are
+# Terraform-owned identifiers, injected at deploy time by
+# scripts/apply-tf-outputs.mjs from `terraform output -json`, so that Terraform
+# stays the single source of truth for infrastructure and this file never
+# drifts from it. Never paste real IDs here by hand.
+#
+# Secrets (DATABASE_ENCRYPTION_KEY, SESSION_SIGNING_KEY) are deliberately absent:
+# they are pushed with `wrangler secret put` in CI from GitHub Environment
+# secrets. See docs/design/12-deployment-roadmap-agentdisk-io.md step 18.
+
+name = "agentdisk-api"
+main = "src/index.ts"
+compatibility_date = "2026-08-01"
+compatibility_flags = ["nodejs_compat"]
+
+# ---------------------------------------------------------------- dev ---
+[env.dev]
+name = "agentdisk-dev-api"
+vars = { ENVIRONMENT = "dev" }
+
+[[env.dev.d1_databases]]
+binding = "DB"
+database_name = "agentdisk-dev-db"
+database_id = "TF_OUTPUT_d1_database_id"
+
+[[env.dev.r2_buckets]]
+binding = "FILES"
+bucket_name = "agentdisk-dev-files"
+
+[[env.dev.kv_namespaces]]
+binding = "CACHE"
+id = "TF_OUTPUT_kv_namespace_id"
+
+[[env.dev.queues.producers]]
+binding = "JOBS"
+queue = "agentdisk-dev-jobs"
+
+[[env.dev.queues.consumers]]
+queue = "agentdisk-dev-jobs"
+max_batch_size = 10
+max_retries = 5
+dead_letter_queue = "agentdisk-dev-jobs-dlq"
+
+# --------------------------------------------------------------- prod ---
+[env.prod]
+name = "agentdisk-prod-api"
+vars = { ENVIRONMENT = "prod" }
+
+[[env.prod.d1_databases]]
+binding = "DB"
+database_name = "agentdisk-prod-db"
+database_id = "TF_OUTPUT_d1_database_id"
+
+[[env.prod.r2_buckets]]
+binding = "FILES"
+bucket_name = "agentdisk-prod-files"
+
+[[env.prod.kv_namespaces]]
+binding = "CACHE"
+id = "TF_OUTPUT_kv_namespace_id"
+
+[[env.prod.queues.producers]]
+binding = "JOBS"
+queue = "agentdisk-prod-jobs"
+
+[[env.prod.queues.consumers]]
+queue = "agentdisk-prod-jobs"
+max_batch_size = 10
+max_retries = 5
+dead_letter_queue = "agentdisk-prod-jobs-dlq"

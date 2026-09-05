@@ -1,0 +1,128 @@
+name: CI
+
+# Runs on every PR into main (the required status check behind branch
+# protection) and on pushes to dev for fast feedback.
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [dev]
+
+# A newer push supersedes an in-flight run on the same ref.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  TERRAFORM_VERSION: "1.16.1"
+
+jobs:
+  # ---------------------------------------------------------------- app ---
+  app:
+    name: App (lint, typecheck, test, build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/api
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/api/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+  # --------------------------------------------------- terraform static ---
+  # Needs no credentials, so it runs on fork PRs too. This plus `app` are the
+  # required status checks: making a credentialed job required would leave fork
+  # PRs permanently unmergeable.
+  terraform-static:
+    name: Terraform (fmt, validate)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infra/terraform
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          terraform_wrapper: false
+
+      - name: Format check
+        run: terraform fmt -check -recursive -diff
+
+      - name: Validate
+        run: |
+          terraform init -backend=false -input=false
+          terraform validate
+
+  # ----------------------------------------------------- terraform plan ---
+  # Shows what would change in BOTH environments before anyone merges.
+  # Skipped for fork PRs, which by design receive no secrets.
+  terraform-plan:
+    name: Terraform plan (${{ matrix.workspace }})
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    environment: Development
+    strategy:
+      fail-fast: false
+      matrix:
+        workspace: [dev, prod]
+    defaults:
+      run:
+        working-directory: infra/terraform
+        shell: bash
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.TF_STATE_R2_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.TF_STATE_R2_SECRET_ACCESS_KEY }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      TF_VAR_account_id: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      TF_VAR_zone_id: ${{ secrets.CLOUDFLARE_ZONE_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          terraform_wrapper: false
+
+      - name: Write backend config
+        run: |
+          set -euo pipefail
+          cat > backend.hcl <<EOF
+          endpoints = {
+            s3 = "https://${{ secrets.CLOUDFLARE_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          }
+          EOF
+
+      - name: Init
+        run: terraform init -backend-config=backend.hcl -input=false
+
+      - name: Select workspace
+        run: terraform workspace select -or-create ${{ matrix.workspace }}
+
+      - name: Plan
+        run: terraform plan -input=false -lock-timeout=5m -no-color

@@ -11,3 +11,28 @@ npm-debug.log*
 # OS / editor cruft
 .DS_Store
 Thumbs.db
+
+# Secrets — never commit (repo is public)
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
+.env
+.env.*
+!.env.example
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+crash.*.log
+# Only non-secret env tfvars are committed; anything auto-loaded or secret-named is not.
+*.auto.tfvars
+*secret*.tfvars
+# NOTE: .terraform.lock.hcl is intentionally NOT ignored - it pins provider versions
+#       and must be committed for reproducible CI runs.
+
+# Terraform backend config (contains account ID)
+backend.hcl
+!backend.hcl.example

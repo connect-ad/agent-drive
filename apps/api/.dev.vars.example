@@ -1,0 +1,5 @@
+# Local-only secrets for `wrangler dev`. Copy to .dev.vars (git-ignored) and fill in.
+# Real values for dev/prod live in GitHub Environment secrets and are pushed to
+# Cloudflare with `wrangler secret put`, never committed and never via Terraform.
+DATABASE_ENCRYPTION_KEY=""
+SESSION_SIGNING_KEY=""

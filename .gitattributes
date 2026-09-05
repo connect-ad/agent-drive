@@ -1,0 +1,5 @@
+# Keep line endings as authored on every platform.
+# design-system/ is a byte-verified mirror of the Claude Design project —
+# any EOL conversion would break that verification, so exempt it entirely.
+* text=auto eol=lf
+design-system/** -text

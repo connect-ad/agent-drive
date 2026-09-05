@@ -87,7 +87,10 @@ jobs:
   # Skipped for fork PRs, which by design receive no secrets.
   terraform-plan:
     name: Terraform plan (${{ matrix.workspace }})
-    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    # Runs for pushes and manual dispatches, and for PRs only when they come
+    # from this repo: fork PRs receive no secrets by design, so a credentialed
+    # plan there would always fail.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     environment: dev
     strategy:

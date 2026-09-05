@@ -24,8 +24,38 @@ env:
   TERRAFORM_VERSION: "1.16.1"
 
 jobs:
+  # A broken build must never reach real infrastructure - not even dev.
+  #
+  # This job, rather than a required status check on the dev branch, is how that
+  # is enforced. Required status checks on a branch also block direct pushes to
+  # it (a freshly pushed commit has not passed checks yet), which would break the
+  # push-to-dev-and-auto-deploy loop the roadmap is built around. Gating the
+  # deploy instead keeps pushes fast while still refusing to ship a red build.
+  verify:
+    name: Verify app
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/api
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/api/package-lock.json
+
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
   deploy:
     name: Deploy ${{ inputs.workspace }}
+    needs: verify
     runs-on: ubuntu-latest
     # This is what makes the Production required-reviewer gate actually block:
     # the job does not start until a reviewer approves.

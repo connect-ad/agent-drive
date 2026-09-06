@@ -265,6 +265,38 @@ export class WorkspaceScopedAuditEvents extends WorkspaceScoped {
 }
 
 /**
+ * The denormalized usage counters on the workspace row (05 PART 11.1).
+ *
+ * Scoped like everything else: the workspace ID is bound in the constructor, so
+ * no caller can adjust another workspace's quota.
+ *
+ * Deltas are applied with `MAX(0, current + delta)` rather than a bare add. The
+ * counters are denormalized, the reconciliation job (10.8) is what makes them
+ * eventually true, and a transient double-decrement must not leave a workspace
+ * with negative usage that then reads as free storage.
+ */
+export class WorkspaceScopedCounters extends WorkspaceScoped {
+  async apply(delta: { bytes?: number; files?: number; egressBytes?: number }, now: number): Promise<void> {
+    const bytes = delta.bytes ?? 0;
+    const files = delta.files ?? 0;
+    const egress = delta.egressBytes ?? 0;
+    if (bytes === 0 && files === 0 && egress === 0) return;
+
+    await this.db
+      .prepare(
+        `UPDATE workspaces
+            SET storage_bytes_used  = MAX(0, storage_bytes_used + ?),
+                file_count          = MAX(0, file_count + ?),
+                egress_bytes_period = MAX(0, egress_bytes_period + ?),
+                updated_at          = ?
+          WHERE id = ?`
+      )
+      .bind(bytes, files, egress, now, this.workspaceId)
+      .run();
+  }
+}
+
+/**
  * The single place a request's repositories are built. Called once per request,
  * after authorization has resolved which workspace the caller may act in -
  * never from a client-supplied field.
@@ -276,6 +308,7 @@ export function createWorkspaceContext(db: D1Database, workspaceId: string) {
     agents: new WorkspaceScopedAgents(db, workspaceId),
     apiKeys: new WorkspaceScopedApiKeys(db, workspaceId),
     auditEvents: new WorkspaceScopedAuditEvents(db, workspaceId),
+    counters: new WorkspaceScopedCounters(db, workspaceId),
   };
 }
 

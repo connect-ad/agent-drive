@@ -26,3 +26,9 @@ variable "root_domain" {
   type        = string
   default     = "agentdisk.io"
 }
+
+variable "manage_r2_signing_token" {
+  description = "Whether Terraform creates the R2 signing token. See the module variable of the same name - enabling it grants the deploy token the ability to mint API tokens."
+  type        = bool
+  default     = false
+}

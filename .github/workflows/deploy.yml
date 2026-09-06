@@ -221,32 +221,68 @@ jobs:
             echo "Set $name"
           done
 
-      # Turnstile and the R2 signing credentials are created by Terraform and
-      # read straight out of state. `terraform output -raw` is piped directly
-      # into wrangler's stdin: the value is never an argument (visible in a
-      # process list), never a shell variable (at risk of being echoed by
-      # `set -x`), and never written to disk.
-      #
-      # Required, not optional, because Terraform always creates them - a
-      # missing output means the apply did not do what it claimed.
-      - name: Push credentials created by Terraform
+      # Turnstile always comes from Terraform. The R2 signing credentials come
+      # from Terraform only when manage_r2_signing_token is on; otherwise they
+      # are GitHub Environment secrets created by hand, because turning that
+      # variable on requires giving the deploy token the right to mint API
+      # tokens. Both paths pipe straight into wrangler's stdin: the value is
+      # never an argument (visible in a process list), never a shell variable
+      # (at risk of being echoed by `set -x`), and never written to disk.
+      - name: Push Turnstile and R2 credentials
         env:
           TF_DIR: infra/terraform
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: |
           set -euo pipefail
-          push() {
+
+          push_output() {
             local output_name="$1" secret_name="$2"
-            if ! terraform -chdir="$TF_DIR" output -raw "$output_name" > /dev/null 2>&1; then
-              echo "::error::Terraform output $output_name is missing. Did the apply succeed?"
-              exit 1
-            fi
-            terraform -chdir="$TF_DIR" output -raw "$output_name"               | (cd apps/api && npx wrangler secret put "$secret_name" --env "$WORKSPACE")
+            terraform -chdir="$TF_DIR" output -raw "$output_name" |
+              (cd apps/api && npx wrangler secret put "$secret_name" --env "$WORKSPACE")
             echo "Set $secret_name from terraform output $output_name"
           }
 
-          push turnstile_secret_key TURNSTILE_SECRET_KEY
-          push r2_access_key_id     R2_ACCESS_KEY_ID
-          push r2_secret_access_key R2_SECRET_ACCESS_KEY
+          push_env() {
+            local secret_name="$1"
+            printf '%s' "${!secret_name}" |
+              (cd apps/api && npx wrangler secret put "$secret_name" --env "$WORKSPACE")
+            echo "Set $secret_name from the $ENVIRONMENT_NAME environment"
+          }
+
+          # Length only. Capturing the output to compare it would put a live
+          # credential in a shell variable purely to ask whether it is empty.
+          have_output() {
+            [ "$(terraform -chdir="$TF_DIR" output -raw "$1" 2>/dev/null | wc -c)" -gt 0 ]
+          }
+
+          # The Turnstile widget is created unconditionally, so a missing
+          # output here means the apply did not do what it claimed.
+          if ! have_output turnstile_secret_key; then
+            echo "::error::Terraform output turnstile_secret_key is missing or empty. Did the apply succeed?"
+            exit 1
+          fi
+          push_output turnstile_secret_key TURNSTILE_SECRET_KEY
+
+          # Two sources, one rule: presigning must never ship uncredentialed.
+          # An empty Terraform output means "not managed here", not "not
+          # needed", so the environment is consulted and the job fails if
+          # neither has it - rather than deploying a Worker whose uploads only
+          # fail at runtime, in front of a user.
+          push_r2() {
+            local output_name="$1" secret_name="$2"
+            if have_output "$output_name"; then
+              push_output "$output_name" "$secret_name"
+            elif [ -n "${!secret_name:-}" ]; then
+              push_env "$secret_name"
+            else
+              echo "::error::No $secret_name available. Either set manage_r2_signing_token = true in infra/terraform (this grants the deploy token API-token minting rights), or add $secret_name to the $ENVIRONMENT_NAME environment from an R2 API token scoped Object Read and Write to this environment's bucket."
+              exit 1
+            fi
+          }
+
+          push_r2 r2_access_key_id     R2_ACCESS_KEY_ID
+          push_r2 r2_secret_access_key R2_SECRET_ACCESS_KEY
 
       # Migrations run BEFORE the code deploy so new code never meets an old
       # schema. This assumes additive, backward-compatible migrations, which is

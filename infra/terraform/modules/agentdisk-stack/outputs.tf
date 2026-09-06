@@ -76,8 +76,15 @@ output "turnstile_secret_key" {
 }
 
 output "r2_access_key_id" {
-  description = "R2 S3 Access Key ID: the signing token's own identifier."
-  value       = cloudflare_account_token.r2_signing.id
+  description = <<-DESC
+    R2 S3 Access Key ID: the signing token's own identifier.
+
+    Empty when manage_r2_signing_token is false. Empty means "Terraform is not
+    the source for this credential", not "there is no credential" - the deploy
+    workflow then requires it from the GitHub Environment instead, and fails
+    if neither source has it. Silence is never taken for "no R2 needed".
+  DESC
+  value       = try(one(cloudflare_account_token.r2_signing).id, "")
   sensitive   = true
 }
 
@@ -89,6 +96,6 @@ output "r2_secret_access_key" {
     value itself (developers.cloudflare.com/r2/api/tokens). Deriving it here
     rather than in CI keeps the raw token value out of the workflow entirely.
   DESC
-  value       = sha256(cloudflare_account_token.r2_signing.value)
+  value       = try(sha256(one(cloudflare_account_token.r2_signing).value), "")
   sensitive   = true
 }

@@ -64,6 +64,8 @@ module "stack" {
   zone_id     = var.zone_id
   root_domain = var.root_domain
 
+  manage_r2_signing_token = var.manage_r2_signing_token
+
   # Ordering, not decoration: nothing is created until the guard has passed.
   depends_on = [terraform_data.workspace_guard]
 }

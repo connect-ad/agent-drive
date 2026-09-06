@@ -258,6 +258,12 @@ resource "cloudflare_turnstile_widget" "bootstrap" {
 # account MEMBER roles and contains no R2 entries at all - it returned an empty
 # list on the first apply, which the precondition below caught.
 data "cloudflare_account_api_token_permission_groups_list" "token_groups" {
+  # Reading this list is itself gated on "API Tokens" permission, so it must
+  # disappear entirely when the signing token is not managed here - a data
+  # source with no consumer is still read on every plan, and would 403 the
+  # whole stack over a resource we deliberately did not ask for.
+  count = var.manage_r2_signing_token ? 1 : 0
+
   account_id = var.account_id
 
   # "Object Read and Write" in the dashboard's R2 token UI: read, write and
@@ -272,12 +278,14 @@ locals {
   # again here. Relying on the server to return exactly one row would mean a
   # future group called "...Bucket Item Write V2" silently becomes a candidate.
   r2_permission_groups = [
-    for group in data.cloudflare_account_api_token_permission_groups_list.token_groups.result :
+    for group in try(one(data.cloudflare_account_api_token_permission_groups_list.token_groups).result, []) :
     group if group.name == local.r2_permission_group_name
   ]
 }
 
 resource "cloudflare_account_token" "r2_signing" {
+  count = var.manage_r2_signing_token ? 1 : 0
+
   account_id = var.account_id
   name       = "${local.prefix}-r2-signing"
 

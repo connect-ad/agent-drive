@@ -47,3 +47,13 @@ output "mcp_url" {
   description = "Base URL of the MCP endpoint."
   value       = "https://${local.mcp_hostname}"
 }
+
+output "web_worker_name" {
+  description = "Worker script name serving the dashboard SPA, targeted by `wrangler deploy` from apps/web."
+  value       = cloudflare_workers_script.web.script_name
+}
+
+output "web_url" {
+  description = "Base URL of the dashboard SPA, used by the deploy smoke test."
+  value       = "https://${local.web_hostname}"
+}

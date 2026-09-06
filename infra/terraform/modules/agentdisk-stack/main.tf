@@ -12,7 +12,17 @@ locals {
   api_hostname = "api${var.subdomain_suffix}.${var.root_domain}"
   mcp_hostname = "mcp${var.subdomain_suffix}.${var.root_domain}"
 
+  # Dashboard SPA. Flat suffix, exactly like api./mcp., so the free Universal
+  # SSL wildcard (*.agentdisk.io) still covers it — a nested app.dev.<domain>
+  # would need paid Advanced Certificate Manager. Doc 12's subdomain table.
+  web_hostname = "app${var.subdomain_suffix}.${var.root_domain}"
+
   worker_name = "${local.prefix}-api"
+
+  # Same agentdisk-<env>-<resource> convention as every other resource here, so
+  # the prod names are already correct the day the prod workspace is first
+  # applied — nothing about these resources is dev-specific.
+  web_worker_name = "${local.prefix}-web"
 
   # Placeholder Worker body. Terraform creates the script so that the custom
   # domain bindings below have an existing service to attach to; Wrangler
@@ -132,4 +142,67 @@ resource "cloudflare_workers_custom_domain" "mcp" {
   zone_id    = var.zone_id
   hostname   = local.mcp_hostname
   service    = cloudflare_workers_script.api.script_name
+}
+
+# ===================================================================== WEB ===
+# The dashboard SPA (apps/web), served as a Workers static-assets Worker rather
+# than a Cloudflare Pages project.
+#
+# DELIBERATE DEVIATION from doc 07 PART 18.4, which assigns app.<domain> to
+# Cloudflare Pages. Three reasons, in order of weight:
+#
+#   1. One deploy mechanism. Everything else here is Terraform-for-infra +
+#      Wrangler-for-code. A Pages project would add a second, differently-shaped
+#      pipeline (`wrangler pages deploy`, its own preview semantics, its own
+#      domain attachment) for no capability the SPA actually needs.
+#   2. The provider covers Worker custom domains well and Pages projects poorly.
+#      cloudflare_workers_custom_domain is already proven in this module for
+#      api./mcp.; cloudflare_pages_project + cloudflare_pages_domain is a
+#      thinner, more awkward path for the same result.
+#   3. Static assets on a Worker are served from Cloudflare's asset store and
+#      are not billed as Worker invocations, so the cost argument that once
+#      favoured Pages no longer applies.
+#
+# The SPA is assets-only: apps/web/wrangler.toml declares no `main`, so there is
+# no Worker code in front of the assets at all. Terraform still has to create a
+# script resource, because a custom domain must bind to a service that exists -
+# same bootstrap ordering problem already solved for the API above.
+
+resource "cloudflare_workers_script" "web" {
+  account_id         = var.account_id
+  script_name        = local.web_worker_name
+  content            = local.placeholder_worker
+  main_module        = "worker.js"
+  compatibility_date = "2026-08-01"
+
+  lifecycle {
+    # Same split as the API script: Terraform owns EXISTENCE, Wrangler owns
+    # CONTENT. `assets` and `keep_assets` are in this list for a reason specific
+    # to this Worker - once Wrangler uploads the SPA bundle, the live script has
+    # an asset manifest that Terraform's config does not describe. Without them
+    # a routine plan would propose stripping the site's own files.
+    ignore_changes = [
+      content,
+      main_module,
+      assets,
+      keep_assets,
+      bindings,
+      compatibility_date,
+      compatibility_flags,
+      migrations,
+      observability,
+      placement,
+      usage_model,
+    ]
+  }
+}
+
+# No cloudflare_dns_record here, for the same reason as api./mcp. above: adding
+# a custom domain creates the DNS record itself, and Cloudflare refuses to
+# attach one to a hostname that already has a CNAME. Declaring both races.
+resource "cloudflare_workers_custom_domain" "web" {
+  account_id = var.account_id
+  zone_id    = var.zone_id
+  hostname   = local.web_hostname
+  service    = cloudflare_workers_script.web.script_name
 }

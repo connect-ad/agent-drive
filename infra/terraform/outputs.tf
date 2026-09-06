@@ -40,3 +40,13 @@ output "mcp_url" {
   description = "Base URL of the MCP endpoint."
   value       = module.stack.mcp_url
 }
+
+output "web_worker_name" {
+  description = "Worker script name serving the dashboard SPA."
+  value       = module.stack.web_worker_name
+}
+
+output "web_url" {
+  description = "Base URL of the dashboard SPA, used by the deploy smoke test."
+  value       = module.stack.web_url
+}

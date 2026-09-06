@@ -87,6 +87,33 @@ were not touched. See [002](backlog/002-reconcile-brand-drift.md).
 - **R2 bindings cannot presign.** `R2Bucket` is get/put/head/list. Presigned
   URLs go through R2's S3 endpoint with SigV4 and need a key pair the binding
   does not carry.
+- **The R2 credential pair decides whether presigning is on — not the count of
+  set variables.** CI injects `R2_ACCOUNT_ID` and `R2_BUCKET_NAME` from
+  `terraform output` on every deploy, so they are always present. Treating them
+  as evidence of intent made the ordinary no-signing deployment look
+  half-configured, and because the config is read on the request path it turned
+  that into a 500 on *every* route. Reading is also deferred to the routes that
+  presign, so one broken variable cannot take down `whoami`.
+- **A handler never gets a raw `R2Bucket`, for the same reason it never gets a
+  raw D1 binding.** One binding reaches every tenant's bytes.
+  `WorkspaceScopedStorage` binds the workspace in its constructor and takes file
+  IDs, so there is no argument through which to name another tenant's object.
+- **Sizes come from R2, never from the client.** The declared size buys a quota
+  decision up front; `complete` asks R2 what it actually holds and re-checks.
+  An upload over the cap is deleted and the row marked failed, rather than left
+  orphaned in the bucket consuming storage nothing accounts for.
+- **Folder emptiness is decided by path, never by `folder_id`.** Folders are
+  created lazily, so a file can sit inside one with `folder_id` still NULL.
+  Asking the `folder_id` question calls that folder empty and orphans live
+  files.
+- **Move and copy check both ends.** Write on a source must not buy write on a
+  destination, or a scoped key can write anywhere by moving a file it controls;
+  copy needs read on the source, or it becomes a way to pull any file into your
+  own scope and read it there.
+- **Clear inbound foreign keys before deleting a subtree.** Within one statement
+  SQLite deletes rows in arbitrary order and checks foreign keys immediately, so
+  a self-referencing tree (`folders.parent_folder_id`) or one referenced from
+  outside (`files.folder_id`) fails whichever way the DELETE is ordered.
 
 ---
 
@@ -155,7 +182,7 @@ provenance), `ApiKeyDisplay` (show-once), `PermissionSelector` (least privilege)
 ## Status
 
 **The UI is built and deployed. The pipeline is built. The backend has auth and
-is growing storage.**
+a working storage core.**
 
 `cd apps/web && npm install && npm run build` is clean — 89 modules, 15 route
 files, ~3,150 lines of app source. All 31 buildable screens from doc 03 PART 8
@@ -184,14 +211,31 @@ and webhook failure detail that never renders headers.
 loop runs unattended: push to `dev` → verify → `terraform apply` → migrations →
 `wrangler deploy` → smoke test.
 
-The API answers `/v1/healthz` unauthenticated and `/v1/whoami` behind the full
-authorization chain. `POST /v1/workspaces` is built and deliberately refuses
-every request until a Turnstile secret is configured — it is the only endpoint
-that creates resources without a credential, so it fails closed rather than
-running ungated.
+The API answers `/v1/healthz` unauthenticated and everything else behind the
+full authorization chain: the file surface (`POST /v1/files` inline and
+presigned, `complete`, list, get, `download`, `PATCH`, `move`, `copy`, `DELETE`,
+`restore`), the folder surface (`POST`/`GET /v1/folders`, `DELETE` with
+`?recursive=true`), and `/v1/whoami`. `POST /v1/workspaces` is live and gated by
+real Turnstile verification — it is the only endpoint that creates resources
+without a credential, and it refuses outright rather than running ungated if the
+secret is ever missing.
 
-Eleven resources exist in the `dev` workspace (D1, R2, KV, jobs queue + DLQ, two
-Workers, three custom domains, and the workspace guard), with state in
+`app-dev.agentdisk.io/sandbox` is the one screen that talks to the real API, and
+the only way to obtain a first credential: the bootstrap endpoint is
+Turnstile-gated and a challenge has to be solved by a browser. Its site key
+comes from `terraform output` at build time, so the widget the dashboard renders
+cannot drift from the widget the API verifies against.
+
+**Presigned upload and download need an R2 signing credential that dev does not
+have yet.** Terraform can create it (`manage_r2_signing_token`), but that
+requires giving the deploy token API-token minting rights — see the rule above —
+so it is off by default and the deploy takes the credential from the GitHub
+Environment instead. Missing is a warning in dev and fatal in prod; the inline
+upload path works without it, because it writes through the binding.
+
+Twelve resources exist in the `dev` workspace (D1, R2, KV, jobs queue + DLQ, two
+Workers, three custom domains, a Turnstile widget, and the workspace guard),
+with state in
 `agentdisk-tfstate` under `dev/terraform.tfstate` and native R2 locking
 confirmed working. **Prod has never been applied** — the `prod` workspace is
 empty, gated behind a PR into `main` plus the required-reviewer approval.
@@ -216,6 +260,14 @@ Cloudflare Pages, but the dashboard ships as a Workers static-assets Worker
 pre-rename domains (`api.agentdrive.ai`, `docs.agentdrive.dev`) that doc 12
 renamed to `agentdisk.io`.
 
-Next: finish [008 · Backend](backlog/008-backend.md) — the storage core, which
-is what roadmap step 27's file round-trip needs. Tracked in
+Next: an R2 signing credential, which is the only thing between here and
+roadmap step 27's presigned round-trip; then the human half of
+[008 · Backend](backlog/008-backend.md) — sessions, refresh rotation, CSRF —
+and the MCP surface. Tracked in
 [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md).
+
+Every security-critical behaviour in the storage core was mutation-tested: 22
+deliberate breaks across two rounds, each one confirmed to turn the suite red.
+Six survived their first pass and became either a missing test or, twice, a
+mutation that changed nothing observable because a second check still enforced
+the property.

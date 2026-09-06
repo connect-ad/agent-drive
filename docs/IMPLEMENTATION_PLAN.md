@@ -193,3 +193,49 @@ not block the round-trip.
   nothing else. Making CI require it would mean the whole API cannot ship until
   the widget exists — trading a working deploy for a check the code already
   makes. CI warns loudly instead.
+
+---
+
+## Phase 3 — Storage core (done)
+
+The file and folder surface from 05 PART 13 is built and deployed:
+`POST /v1/files` in both modes, `complete`, list, get, `download`, `PATCH`,
+`move`, `copy`, `DELETE`, `restore`, and `POST`/`GET`/`DELETE /v1/folders`.
+
+**The Worker is never in the byte path**, except for the inline path (10.4) for
+files at or below 1 MB, where a presigned round trip costs more than the write.
+That exception is also what lets dev prove a real upload today, before the R2
+signing credential exists.
+
+### Deferred, with the reason
+
+- **Multipart upload** (12.7, files above 100 MB). The single-PUT path is what
+  the round-trip needs, and multipart is a distinct protocol - part URLs,
+  ETag tracking, `CompleteMultipartUpload` - that deserves its own change
+  rather than being smuggled in beside single-part.
+- **`POST /v1/files/:id/sign` and `GET /v1/dl/:token`** (12.4). Permanent-
+  revocable links need the `signed_links` table, which does not exist yet.
+- **`GET /v1/search`** (10.5 level 1). Cheap on top of what is here, but it is
+  its own route with its own scope-filtering story.
+- **The purge queue consumer.** Deletes are soft, and the R2 object survives
+  until a consumer removes it. The consumer and the reconciliation job (10.8)
+  are one piece of work: both exist to make the D1/R2 pair converge.
+- **Egress accounting is at URL issuance, not at fetch.** R2 does not call back
+  on a GET, so this is the only moment the Worker can observe. 19's assumptions
+  already record it as a deliberate over-count.
+
+### Blocking the presigned round-trip
+
+`R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` are absent in dev. Two ways to fix
+it, and the choice is a security one rather than a convenience one:
+
+1. Set `manage_r2_signing_token = true`. Terraform then creates the token, but
+   it needs Account -> API Tokens: Edit on the deploy token, which lets that
+   token mint any credential in the account.
+2. Create the token by hand once per environment (R2 -> Manage API tokens,
+   Object Read & Write, scoped to that environment's bucket) and put the pair
+   in the GitHub Environment. No escalation.
+
+The deploy accepts either and fails when it finds neither - warning in dev,
+fatal in prod, since a Worker that looks healthy and fails on a customer's
+first upload is the worse outcome.

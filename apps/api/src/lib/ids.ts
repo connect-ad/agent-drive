@@ -72,6 +72,9 @@ export const ID_PREFIX = {
   file: "fil",
   auditEvent: "evt",
   webhook: "whk",
+  // Not an entity: request IDs are never stored, only echoed in error bodies
+  // and logs (05 PART 13's envelope). Same generator, same sortability.
+  request: "req",
 } as const;
 
 export type EntityKind = keyof typeof ID_PREFIX;

@@ -1,11 +1,15 @@
 /**
- * AgentDrive API Worker — pipeline skeleton.
+ * AgentDrive API Worker.
  *
- * Scope note: this file exists so the infra/CI pipeline has something real to
- * deploy and smoke-test end to end. Application logic (auth, REST resources,
- * MCP tools) is the job of docs/design/11-backend-implementation-prompt.md and
- * lands on top of this, not inside it.
+ * Routing is a switch, not a framework. There are two routes; a router library
+ * would be more code than the thing it routes. It becomes worth revisiting when
+ * the full 05 PART 13 surface lands.
  */
+
+import { toErrorResponse, ApiError } from "./lib/errors";
+import { newId } from "./lib/ids";
+import { withAuth, type Requirement, type Handler } from "./middleware/auth";
+import { whoami } from "./routes/whoami";
 
 export interface Env {
   DB: D1Database;
@@ -39,15 +43,48 @@ function json(body: unknown, status = 200): Response {
   });
 }
 
+/**
+ * One ID per request, echoed in every error body and every log line, so a user
+ * reporting "I got a 403" hands us the string that finds the exact request.
+ */
+function requestId(): string {
+  return newId("request");
+}
+
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
-    const url = new URL(request.url);
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    const id = requestId();
 
-    if (url.pathname === "/v1/healthz") {
-      return json(buildHealth(env, new Date()));
+    try {
+      const url = new URL(request.url);
+      const route = `${request.method} ${url.pathname}`;
+
+      // Public. No credential is read, so nothing here can leak one.
+      if (route === "GET /v1/healthz") {
+        return json(buildHealth(env, new Date()));
+      }
+
+      const authed = (requirement: Requirement, handler: Handler): Promise<Response> =>
+        withAuth(
+          request,
+          {
+            db: env.DB,
+            requestId: id,
+            waitUntil: (promise) => ctx.waitUntil(promise),
+          },
+          requirement,
+          handler
+        );
+
+      if (route === "GET /v1/whoami") {
+        // Any valid credential; no particular capability. 13's table says "Self".
+        return await authed({ op: null }, whoami);
+      }
+
+      throw new ApiError("NOT_FOUND", "No such route.");
+    } catch (thrown) {
+      return toErrorResponse(thrown, id);
     }
-
-    return json({ error: { code: "not_found", message: "No such route." } }, 404);
   },
 
   /**
@@ -58,10 +95,10 @@ export default {
    * so this is required for the deploy to succeed, not optional scaffolding.
    *
    * Nothing produces messages yet. Real handlers (webhook delivery, async
-   * processing, reconciliation) belong in src/jobs/ and are doc 11's job. Until
-   * then this retries rather than acks: silently dropping a message that
-   * something unexpectedly enqueued would be worse than letting it redeliver
-   * and eventually land in agentdisk-dev-jobs-dlq, where it is visible.
+   * processing, reconciliation) belong in src/jobs/. Until then this retries
+   * rather than acks: silently dropping a message that something unexpectedly
+   * enqueued would be worse than letting it redeliver and eventually land in
+   * agentdisk-dev-jobs-dlq, where it is visible.
    */
   async queue(batch: MessageBatch<unknown>, _env: Env): Promise<void> {
     console.log(

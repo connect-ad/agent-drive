@@ -16,7 +16,7 @@ is that prompt under its original number. No document is actually missing.
 |---|---|---|
 | 0 | Foundation | **Done** — superseded by the infra work |
 | 1 | Data layer — schema, scoped repositories, isolation tests | **Done** |
-| 2 | Authentication — API keys, sessions, authz middleware | Next |
+| 2 | Authentication — API keys, sessions, authz middleware | **API keys done**; sessions next |
 | 3 | Storage core — R2 presigned upload/download, file/folder CRUD | Not started |
 | 4 | REST API — full PART 13 surface, OpenAPI, rate limits | Not started |
 | 5 | MCP server — 10 tools over the same services | Not started |
@@ -70,27 +70,55 @@ The isolation tests were mutation-checked: removing the workspace filter from
 `getById` fails exactly the two tests asserting it. A security test that cannot
 fail is not evidence, so this check is worth repeating whenever they change.
 
-### Phase 2 — Authentication (next)
+### Phase 2 — Authentication (API keys done, sessions next)
 
 Order within the phase: **API-key auth first**, then human sessions. Agent keys
 are what the file round-trip in roadmap step 27 actually needs, and the key path
-is the simpler of the two to get right. This is ordering within Phase 2, not
-skipping ahead to Phase 3.
+is the simpler of the two to get right.
 
-1. Key generation and verification (06 PART 15.3/16.4): `ask_live_` prefix,
-   SHA-256 of the secret stored, raw secret shown once and never persisted.
-   Never accepted in a query string - only the `Authorization` header.
-2. The authorization middleware chain (06 PART 15.2/16.1) as the one place every
-   request passes through: authenticate → resolve scope → resolve workspace →
-   authorize → quota → build the scoped repositories.
-3. Scope enforcement: ops (`read`/`write`) and `pathPrefix`, per the `scopes`
-   JSON column.
-4. Human auth: sessions, refresh rotation, CSRF double-submit.
+**Done — the API-key half.**
 
-**Argon2id remains unresolved and must be measured, not assumed** (06 PART 16.5).
-It is CPU-bound and Workers caps CPU per request. bcrypt is the documented
-fallback. This only blocks password login, not API keys, so it does not block
-the round-trip.
+1. `src/lib/keys.ts` — `ask_live_`/`ask_test_`, 32 base62 characters from
+   `crypto.getRandomValues` with rejection sampling (a modulo fold of 0–255 into
+   62 would over-represent the first eight alphabet characters by a third), the
+   raw secret returned once and never written, SHA-256 of the *whole* token
+   stored so a live and a test key can never be the same credential.
+2. `src/auth/scopes.ts` — the `{ ops, pathPrefix }` model, parsed fail-closed:
+   an unreadable or partly-unknown blob grants nothing rather than falling back
+   to a default. Prefix matching is segment-aware, so `/agents/bot` does not
+   authorize `/agents/bot-evil/secrets.txt`.
+3. `src/middleware/auth.ts` — the six-step chain from 06 PART 16.1, in order.
+   A handler receives an `AuthContext` carrying scoped repositories and **no
+   `env`**, so it cannot reach a raw D1 binding even deliberately.
+4. `src/lib/plans.ts` / `src/lib/quota.ts` — the 07 PART 19.0 limits table and
+   the checks that run at step 5, resolving anything unrecognised to the
+   tightest plan.
+5. `GET /v1/whoami` behind the chain, plus the 05 PART 13 error envelope with a
+   request ID on every response.
+
+**83 tests pass.** Seven deliberate mutations were each killed by the tests:
+plain-`startsWith` prefix matching, workspace taken from the query string,
+distinguishable revoked/expired errors, silently accepting a query-string
+credential, skipping the expiry check, ignoring an unknown scope op, and
+letting a disabled agent's key through.
+
+**Deferred deliberately, with reasons.**
+
+- **No KV cache on the key lookup yet** (06 PART 15.3 describes one). The cache
+  is only safe alongside the revoke handler that busts it, and that handler is
+  Phase 4's `DELETE /v1/keys/:id`. A cache without its invalidation is a
+  security regression sold as an optimization, so the cache lands with the
+  handler. The lookup is a single unique-index probe in the meantime.
+- **`last_used_at` is written at most once a minute per key**, off the response
+  path via `waitUntil`. Writing it per request would put a D1 write in the hot
+  path of every authenticated call to learn a number the dashboard reads to
+  the nearest minute.
+
+**Still to do — the human half.** Sessions, refresh rotation, CSRF
+double-submit. **Argon2id remains unresolved and must be measured, not assumed**
+(06 PART 16.5): it is CPU-bound and Workers caps CPU per request. bcrypt is the
+documented fallback. This blocks password login only, not API keys, so it does
+not block the round-trip.
 
 ### Decisions taken here (flagged, not silent)
 
@@ -103,3 +131,11 @@ the round-trip.
   confirming at implementation time whether the Workers runtime has a viable
   Argon2id. It is CPU-bound and Workers caps CPU per request, so this needs
   measuring, not guessing. Phase 2 decision; bcrypt is the documented fallback.
+- **A credential in the query string is rejected, not ignored.** 06 PART 16.4
+  says keys are never *accepted* there. Ignoring one would satisfy that
+  literally, but by the time we see it the key is already in Cloudflare's
+  access logs and the caller's shell history — it is burned either way, and
+  only a loud failure gets it rotated.
+- **Zod is not used yet.** It is still the choice for request-body validation
+  when Phase 3 adds routes that parse bodies. Nothing in the auth path parses a
+  body, so adding the dependency now would be a dependency with no caller.

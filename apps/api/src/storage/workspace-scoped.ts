@@ -150,6 +150,27 @@ export class WorkspaceScopedStorage {
     return { size: object.size, etag: object.etag };
   }
 
+  /**
+   * Duplicate one file's object into another file's key.
+   *
+   * Streamed, not buffered: a copy must not be bounded by how much of a file
+   * fits in a Worker's memory. R2's binding has no server-side copy, so this
+   * is a read of one key piped into a write of another - both keys derived
+   * from this workspace, so a copy can never cross a tenant boundary in either
+   * direction.
+   */
+  async copy(fromFileId: string, toFileId: string): Promise<void> {
+    const source = await this.bucket.get(this.key(fromFileId));
+    if (source === null) {
+      throw new ApiError("CONFLICT", "This file's contents are no longer available.", {
+        internalReason: `copy source object missing for ${fromFileId}`,
+      });
+    }
+    await this.bucket.put(this.key(toFileId), source.body, {
+      httpMetadata: source.httpMetadata,
+    });
+  }
+
   async delete(fileId: string): Promise<void> {
     await this.bucket.delete(this.key(fileId));
   }

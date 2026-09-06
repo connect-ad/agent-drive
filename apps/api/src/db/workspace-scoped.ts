@@ -313,6 +313,110 @@ export class WorkspaceScopedFolders extends WorkspaceScoped {
       .run();
     return (result.meta.changes ?? 0) > 0;
   }
+
+  async listByPrefix(pathPrefix: string): Promise<FolderRow[]> {
+    const like = `${escapeLikePattern(pathPrefix === "/" ? "" : pathPrefix)}%`;
+    const result = await this.db
+      .prepare(
+        `SELECT * FROM folders
+          WHERE workspace_id = ? AND path LIKE ? ESCAPE '\\'
+          ORDER BY path`
+      )
+      .bind(this.workspaceId, like)
+      .all<FolderRow>();
+    return result.results ?? [];
+  }
+
+  /**
+   * Whether anything lives under this folder's path.
+   *
+   * Checked against paths rather than folder_id because a file may sit at a
+   * path under a folder without ever having had its folder_id populated -
+   * folders are created lazily, so folder_id is an optimisation and path is
+   * the truth. Deleting a folder whose subtree is non-empty on that basis
+   * would orphan real files.
+   */
+  async hasDescendants(path: string): Promise<boolean> {
+    const like = `${escapeLikePattern(path)}/%`;
+    const file = await this.db
+      .prepare(
+        `SELECT 1 FROM files
+          WHERE workspace_id = ? AND path LIKE ? ESCAPE '\\' AND deleted_at IS NULL
+          LIMIT 1`
+      )
+      .bind(this.workspaceId, like)
+      .first<{ 1: number }>();
+    if (file !== null) return true;
+
+    const folder = await this.db
+      .prepare(
+        `SELECT 1 FROM folders
+          WHERE workspace_id = ? AND path LIKE ? ESCAPE '\\'
+          LIMIT 1`
+      )
+      .bind(this.workspaceId, like)
+      .first<{ 1: number }>();
+    return folder !== null;
+  }
+
+  /** Delete a folder and everything beneath it. Files are soft-deleted (10.7). */
+  async deleteRecursive(path: string, now: number): Promise<{ files: number; bytes: number }> {
+    const like = `${escapeLikePattern(path)}/%`;
+
+    // Sum first: once the rows are marked deleted the sizes are still there,
+    // but doing it in one read keeps the caller from having to re-query to
+    // learn how much quota to release.
+    const totals = await this.db
+      .prepare(
+        `SELECT COUNT(*) AS files, COALESCE(SUM(size_bytes), 0) AS bytes
+           FROM files
+          WHERE workspace_id = ? AND path LIKE ? ESCAPE '\\'
+            AND deleted_at IS NULL AND status = 'active'`
+      )
+      .bind(this.workspaceId, like)
+      .first<{ files: number; bytes: number }>();
+
+    // Order does not save us here: within one statement SQLite deletes rows in
+    // an arbitrary order and foreign keys are checked immediately, so deleting
+    // a subtree that references itself (folders.parent_folder_id) or is
+    // referenced by files (files.folder_id) fails whichever way it is written.
+    // So every reference INTO the subtree is cleared first, and only then are
+    // the rows removed. Clearing folder_id costs nothing real: it is an
+    // optimisation over `path`, which is the actual truth about where a file
+    // lives, and these files are being deleted anyway.
+    await this.db.batch([
+      this.db
+        .prepare(
+          `UPDATE files SET folder_id = NULL
+            WHERE workspace_id = ?
+              AND folder_id IN (
+                SELECT id FROM folders
+                 WHERE workspace_id = ? AND (path = ? OR path LIKE ? ESCAPE '\\')
+              )`
+        )
+        .bind(this.workspaceId, this.workspaceId, path, like),
+      this.db
+        .prepare(
+          `UPDATE files SET status = 'deleted', deleted_at = ?, updated_at = ?
+            WHERE workspace_id = ? AND path LIKE ? ESCAPE '\\' AND deleted_at IS NULL`
+        )
+        .bind(now, now, this.workspaceId, like),
+      this.db
+        .prepare(
+          `UPDATE folders SET parent_folder_id = NULL
+            WHERE workspace_id = ? AND (path = ? OR path LIKE ? ESCAPE '\\')`
+        )
+        .bind(this.workspaceId, path, like),
+      this.db
+        .prepare(
+          `DELETE FROM folders
+            WHERE workspace_id = ? AND (path = ? OR path LIKE ? ESCAPE '\\')`
+        )
+        .bind(this.workspaceId, path, like),
+    ]);
+
+    return { files: totals?.files ?? 0, bytes: totals?.bytes ?? 0 };
+  }
 }
 
 export class WorkspaceScopedAgents extends WorkspaceScoped {

@@ -23,6 +23,13 @@ import {
   patchFile,
   restoreFile,
 } from "./routes/files";
+import {
+  copyFile,
+  createFolder,
+  deleteFolder,
+  listFolders,
+  moveFile,
+} from "./routes/folders";
 import { readSigningConfig, type R2SigningConfig } from "./storage/presign";
 
 export interface Env {
@@ -189,6 +196,31 @@ export default {
         // delete, so it is the same capability (13's table).
         if (segments.length === 4 && request.method === "POST" && action === "restore") {
           return await onFile({ op: "delete" }, restoreFile);
+        }
+        // Move needs write on BOTH ends and copy needs read on the source plus
+        // write on the destination (13's table); both second checks are inside
+        // the handlers, which are the only place the destination is known.
+        if (segments.length === 4 && request.method === "POST" && action === "move") {
+          return await onFile({ op: "write" }, moveFile);
+        }
+        if (segments.length === 4 && request.method === "POST" && action === "copy") {
+          return await onFile({ op: "read" }, copyFile);
+        }
+      }
+
+      if (segments[0] === "v1" && segments[1] === "folders") {
+        const folderId = segments[2];
+
+        if (folderId === undefined) {
+          if (request.method === "POST") return await authed({ op: "write" }, createFolder);
+          if (request.method === "GET") return await authed({ op: "list" }, listFolders);
+          throw new ApiError("NOT_FOUND", "No such route.");
+        }
+
+        if (segments.length === 3 && request.method === "DELETE") {
+          return await authed({ op: "delete" }, (authCtx, req) =>
+            deleteFolder(authCtx, req, folderId)
+          );
         }
       }
 

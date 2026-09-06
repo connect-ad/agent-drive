@@ -264,25 +264,44 @@ jobs:
           fi
           push_output turnstile_secret_key TURNSTILE_SECRET_KEY
 
-          # Two sources, one rule: presigning must never ship uncredentialed.
-          # An empty Terraform output means "not managed here", not "not
-          # needed", so the environment is consulted and the job fails if
-          # neither has it - rather than deploying a Worker whose uploads only
-          # fail at runtime, in front of a user.
+          # Two sources, and an empty Terraform output means "not managed
+          # here", never "not needed" - so the GitHub Environment is consulted
+          # before giving up.
+          #
+          # Absent from both is fatal in prod and a warning in dev, which is a
+          # deliberate asymmetry rather than laxness. Prod must never serve a
+          # Worker that looks healthy and then fails on a customer's first
+          # upload. Dev is where this system is still being built, and the
+          # Worker already fails closed without these: readSigningConfig()
+          # returns null when nothing is configured and the presign routes
+          # refuse, exactly as POST /v1/workspaces refuses without a Turnstile
+          # secret. Blocking every dev deploy on a credential no shipped route
+          # uses yet would buy nothing and stop the work.
           push_r2() {
             local output_name="$1" secret_name="$2"
             if have_output "$output_name"; then
               push_output "$output_name" "$secret_name"
             elif [ -n "${!secret_name:-}" ]; then
               push_env "$secret_name"
+            elif [ "$WORKSPACE" = "dev" ]; then
+              echo "::warning::No $secret_name for dev. Presigned upload and download URLs will refuse until it exists; everything else deploys."
+              MISSING_R2=1
             else
               echo "::error::No $secret_name available. Either set manage_r2_signing_token = true in infra/terraform (this grants the deploy token API-token minting rights), or add $secret_name to the $ENVIRONMENT_NAME environment from an R2 API token scoped Object Read and Write to this environment's bucket."
               exit 1
             fi
           }
 
+          MISSING_R2=0
+
           push_r2 r2_access_key_id     R2_ACCESS_KEY_ID
           push_r2 r2_secret_access_key R2_SECRET_ACCESS_KEY
+
+          if [ "$MISSING_R2" = "1" ]; then
+            echo "R2_SIGNING_CONFIGURED=false" >> "$GITHUB_ENV"
+          else
+            echo "R2_SIGNING_CONFIGURED=true" >> "$GITHUB_ENV"
+          fi
 
       # Migrations run BEFORE the code deploy so new code never meets an old
       # schema. This assumes additive, backward-compatible migrations, which is
@@ -306,6 +325,9 @@ jobs:
           if [ "${{ job.status }}" = "success" ]; then
             echo "### Deploy to $WORKSPACE succeeded" >> "$GITHUB_STEP_SUMMARY"
             echo "- API: ${API_URL:-unknown}" >> "$GITHUB_STEP_SUMMARY"
+            if [ "${R2_SIGNING_CONFIGURED:-unknown}" = "false" ]; then
+              echo "- R2 presigning: **not configured** - upload and download URLs will refuse" >> "$GITHUB_STEP_SUMMARY"
+            fi
           else
             echo "### Deploy to $WORKSPACE FAILED (${{ job.status }})" >> "$GITHUB_STEP_SUMMARY"
           fi

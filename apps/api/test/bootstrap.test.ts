@@ -273,7 +273,10 @@ describe("the full loop", () => {
   });
 
   it("routes POST /v1/workspaces through the Worker", async () => {
-    stubSiteverify();
+    // Through the Worker, TURNSTILE_ALLOWED_HOSTNAMES comes from wrangler.toml,
+    // so the challenge has to look like it was solved on the dashboard - which
+    // is where the widget actually lives.
+    stubSiteverify({ success: true, hostname: "app-dev.agentdisk.io" });
     const res = await SELF.fetch(`${URL_BASE}/v1/workspaces`, {
       method: "POST",
       headers: { "content-type": "application/json", "cf-connecting-ip": "5.5.5.5" },
@@ -281,6 +284,24 @@ describe("the full loop", () => {
     });
     expect(res.status).toBe(201);
     expect(((await res.json()) as any).workspace.name).toBe("Routed");
+  });
+
+  it("enforces the configured hostname pinning end to end", async () => {
+    // The same request, with a challenge solved somewhere else, is refused -
+    // and this runs through the Worker, so it proves the wrangler.toml var is
+    // actually reaching verifyTurnstile rather than being silently unset.
+    stubSiteverify({ success: true, hostname: "somewhere-else.example" });
+    const res = await SELF.fetch(`${URL_BASE}/v1/workspaces`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "cf-connecting-ip": "6.6.6.6" },
+      body: JSON.stringify({ turnstileToken: "t", name: "Rejected" }),
+    });
+    expect(res.status).toBe(403);
+
+    const leaked = await env.DB.prepare(
+      `SELECT COUNT(*) AS n FROM workspaces WHERE name = 'Rejected'`
+    ).first<{ n: number }>();
+    expect(leaked?.n).toBe(0);
   });
 
   it("does not accept the bootstrap on GET", async () => {

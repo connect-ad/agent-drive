@@ -57,3 +57,38 @@ output "web_url" {
   description = "Base URL of the dashboard SPA, used by the deploy smoke test."
   value       = "https://${local.web_hostname}"
 }
+
+# --- Credentials. Unlike everything above, these ARE secrets. ---
+#
+# They exist as outputs because CI pushes them to the Worker with
+# `wrangler secret put`; they are read with `terraform output -raw` and piped
+# straight to stdin, so no value is ever an argument or a log line.
+
+output "turnstile_sitekey" {
+  description = "Turnstile site key. Public by design - it is embedded in the dashboard HTML."
+  value       = cloudflare_turnstile_widget.bootstrap.sitekey
+}
+
+output "turnstile_secret_key" {
+  description = "Turnstile secret key, pushed to the Worker as TURNSTILE_SECRET_KEY."
+  value       = cloudflare_turnstile_widget.bootstrap.secret
+  sensitive   = true
+}
+
+output "r2_access_key_id" {
+  description = "R2 S3 Access Key ID: the signing token's own identifier."
+  value       = cloudflare_account_token.r2_signing.id
+  sensitive   = true
+}
+
+output "r2_secret_access_key" {
+  description = <<-DESC
+    R2 S3 Secret Access Key.
+
+    Cloudflare defines this as the SHA-256 of the API token value, not the
+    value itself (developers.cloudflare.com/r2/api/tokens). Deriving it here
+    rather than in CI keeps the raw token value out of the workflow entirely.
+  DESC
+  value       = sha256(cloudflare_account_token.r2_signing.value)
+  sensitive   = true
+}

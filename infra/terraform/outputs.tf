@@ -62,3 +62,29 @@ output "account_id" {
   DESC
   value       = var.account_id
 }
+
+# --- Credentials, forwarded for `wrangler secret put`. See the module's
+#     outputs.tf for what putting these in state costs. ---
+
+output "turnstile_sitekey" {
+  description = "Turnstile site key. Public - embedded in the dashboard HTML."
+  value       = module.stack.turnstile_sitekey
+}
+
+output "turnstile_secret_key" {
+  description = "Turnstile secret key, pushed to the Worker as TURNSTILE_SECRET_KEY."
+  value       = module.stack.turnstile_secret_key
+  sensitive   = true
+}
+
+output "r2_access_key_id" {
+  description = "R2 S3 Access Key ID, pushed to the Worker as R2_ACCESS_KEY_ID."
+  value       = module.stack.r2_access_key_id
+  sensitive   = true
+}
+
+output "r2_secret_access_key" {
+  description = "R2 S3 Secret Access Key, pushed to the Worker as R2_SECRET_ACCESS_KEY."
+  value       = module.stack.r2_secret_access_key
+  sensitive   = true
+}

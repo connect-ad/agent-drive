@@ -55,9 +55,24 @@ were not touched. See [002](backlog/002-reconcile-brand-drift.md).
 - **Terraform >= 1.11 is mandatory, not a preference.** Native S3-backend locking
   (`use_lockfile`) is the only locking that works against R2, and it went GA in 1.11.
   On 1.6.x the backend silently runs with *no* locking at all.
-- **No secret ever enters Terraform.** State is plaintext even remotely. App secrets
-  reach Cloudflare only via `wrangler secret put` in CI, sourced from GitHub
-  Environment secrets.
+- **Terraform state is a secret store now — treat it as one.** The original rule
+  was "no secret ever enters Terraform"; it was amended deliberately to remove
+  every manual dashboard step from provisioning. The stack creates a Turnstile
+  widget and an R2 signing token, and `sensitive` only masks a value in CLI
+  output — state is unencrypted JSON, so `agentdisk-tfstate` holds a live R2
+  read/write credential for the files bucket. **That makes the state bucket's
+  own credentials the most powerful secrets in the system.** Never
+  `terraform state pull` to a laptop or into a CI artifact; a state backup is a
+  credential backup. `terraform output -json` includes sensitive values in full,
+  so CI deletes that file the moment it is done with it.
+- **`DATABASE_ENCRYPTION_KEY` and `SESSION_SIGNING_KEY` still never touch
+  Terraform.** They decrypt stored data and sign sessions; they stay GitHub
+  Environment secrets, pushed with `wrangler secret put`. The amendment above
+  is one specific exception, not a general licence.
+- **The deploy token can mint API tokens.** Creating the R2 signing token needs
+  Account → API Tokens: Edit on `TERRAFORM_CF_ACCESS_TOKEN`, and Cloudflare does
+  not restrict a token to minting only what it already holds. A leak of that
+  token is therefore full account compromise, not just the resources it manages.
 - **Resource IDs are never typed by hand.** CI injects them into `wrangler.toml`
   from `terraform output -json`; the committed file holds `TF_OUTPUT_*` placeholders.
 - **A Worker that owns static assets needs `assets` and `keep_assets` in

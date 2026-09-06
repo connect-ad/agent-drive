@@ -206,3 +206,92 @@ resource "cloudflare_workers_custom_domain" "web" {
   hostname   = local.web_hostname
   service    = cloudflare_workers_script.web.script_name
 }
+
+# ----------------------------------------------------- credentials ---
+#
+# EVERYTHING BELOW THIS LINE PUTS A LIVE CREDENTIAL IN TERRAFORM STATE.
+#
+# The module header says this file contains no application secret. That is
+# still true of DATABASE_ENCRYPTION_KEY and SESSION_SIGNING_KEY, which remain
+# GitHub Environment secrets. It is deliberately no longer true of the two
+# below, on an explicit decision to trade the rule for removing every manual
+# dashboard step from provisioning.
+#
+# What that costs, stated plainly so nobody rediscovers it during an incident:
+# `sensitive` only masks a value in CLI output. State is unencrypted JSON, so
+# `agentdisk-tfstate` now holds a live R2 read/write credential for the files
+# bucket. Anyone who can read that state can read every file in it. That makes
+# R2_STATE_ACCESS_KEY_ID / R2_STATE_SECRET_ACCESS_KEY - the credentials for the
+# state bucket itself - the most powerful secrets in the system, above the
+# application secrets they were previously beneath.
+#
+# Consequences to keep in mind:
+#   - Never `terraform state pull` to a laptop, or into a CI artifact.
+#   - Rotating the state credentials no longer only affects Terraform runs.
+#   - A state backup is a credential backup. Treat it accordingly.
+
+# Turnstile gates POST /v1/workspaces, the only endpoint that creates resources
+# without a credential (05 PART 13). The domain list belongs in code rather
+# than a dashboard form: it is the entire allowlist of origins a challenge may
+# be solved on, and it should be reviewed in a PR like any other access rule.
+resource "cloudflare_turnstile_widget" "bootstrap" {
+  account_id = var.account_id
+  name       = "${local.prefix}-bootstrap"
+  mode       = "managed"
+
+  # The dashboard is where the widget renders. The API hostname is included
+  # because the Worker pins the solved-on hostname against this same list
+  # (TURNSTILE_ALLOWED_HOSTNAMES), and a direct API caller solving the
+  # challenge itself is a supported agent flow.
+  domains = [
+    local.web_hostname,
+    local.api_hostname,
+  ]
+}
+
+# R2 bindings cannot presign - R2Bucket is get/put/head/list - so presigned
+# upload and download URLs (05 PART 12.2/12.3) need S3 credentials the binding
+# does not carry. Cloudflare derives those from an ordinary API token:
+# Access Key ID is the token's id, Secret Access Key is SHA-256 of its value.
+data "cloudflare_account_permission_groups" "r2_object_rw" {
+  account_id = var.account_id
+
+  # "Object Read and Write" in the dashboard's R2 token UI: read, write and
+  # list objects within a bucket, with no bucket-management rights at all.
+  name = "Workers R2 Storage Bucket Item Write"
+}
+
+resource "cloudflare_account_token" "r2_signing" {
+  account_id = var.account_id
+  name       = "${local.prefix}-r2-signing"
+
+  policies = [{
+    effect = "allow"
+
+    permission_groups = [{
+      id = one(data.cloudflare_account_permission_groups.r2_object_rw.result).id
+    }]
+
+    # Scoped to this environment's bucket alone. The account-level alternative
+    # ("Workers R2 Storage Write") would also let this token create and delete
+    # buckets, which nothing in the application ever needs to do.
+    resources = jsonencode({
+      "com.cloudflare.edge.r2.bucket.${var.account_id}_default_${cloudflare_r2_bucket.files.name}" = "*"
+    })
+  }]
+
+  lifecycle {
+    precondition {
+      condition     = length(data.cloudflare_account_permission_groups.r2_object_rw.result) == 1
+      error_message = <<-MSG
+        Expected exactly one permission group named
+        "Workers R2 Storage Bucket Item Write", found
+        ${length(data.cloudflare_account_permission_groups.r2_object_rw.result)}.
+
+        Cloudflare renamed or split the group. Do not guess which of the
+        matches is right - a wrong permission group here either breaks
+        presigning or grants this token more than object access.
+      MSG
+    }
+  }
+}

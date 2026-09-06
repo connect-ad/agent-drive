@@ -119,3 +119,20 @@ export async function setWorkspaceStatus(workspaceId: string, status: string): P
 export function bearer(token: string): HeadersInit {
   return { authorization: `Bearer ${token}` };
 }
+
+/** Clear the KV namespace the rate limiter counts in, between tests. */
+export async function resetRateLimits(): Promise<void> {
+  const { keys } = await env.CACHE.list({ prefix: "rl:" });
+  for (const key of keys) {
+    await env.CACHE.delete(key.name);
+  }
+}
+
+/** Remove everything the bootstrap flow creates, including its provisional rows. */
+export async function resetBootstrapData(): Promise<void> {
+  await env.DB.prepare(`DELETE FROM api_keys`).run();
+  await env.DB.prepare(`DELETE FROM agents`).run();
+  await env.DB.prepare(`DELETE FROM workspaces WHERE claimed_at IS NULL`).run();
+  await env.DB.prepare(`DELETE FROM organizations WHERE id NOT IN (SELECT org_id FROM workspaces)`).run();
+  await env.DB.prepare(`DELETE FROM users WHERE is_provisional = 1`).run();
+}

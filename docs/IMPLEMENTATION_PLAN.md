@@ -16,7 +16,7 @@ is that prompt under its original number. No document is actually missing.
 |---|---|---|
 | 0 | Foundation | **Done** — superseded by the infra work |
 | 1 | Data layer — schema, scoped repositories, isolation tests | **Done** |
-| 2 | Authentication — API keys, sessions, authz middleware | **API keys done**; sessions next |
+| 2 | Authentication — API keys, sessions, authz middleware | **API keys + bootstrap done**; sessions next |
 | 3 | Storage core — R2 presigned upload/download, file/folder CRUD | Not started |
 | 4 | REST API — full PART 13 surface, OpenAPI, rate limits | Not started |
 | 5 | MCP server — 10 tools over the same services | Not started |
@@ -114,6 +114,50 @@ letting a disabled agent's key through.
   path of every authenticated call to learn a number the dashboard reads to
   the nearest minute.
 
+**Done — the bootstrap.** `POST /v1/workspaces`, built to 05 PART 13 rather
+than behind a temporary gate: Turnstile verified server-side, plus the stated
+10/hour/IP limit on KV counters. It provisions org, provisional owner, workspace,
+agent and the first key in **one D1 batch**, so a half-provisioned workspace
+cannot exist. The key is returned once and only its SHA-256 is stored.
+
+The rate limit is checked *before* the Turnstile round trip, so a flood costs one
+KV read rather than a network call. Turnstile fails closed on every path —
+non-200, unparseable body, timeout, unreachable. If Turnstile is down we stop
+issuing sandbox workspaces; any other behaviour turns an outage into an open gate.
+
+Migration `0003` adds two columns PART 11.1 does not have, because PART 13
+specifies a claim endpoint and a claim only makes sense if an unclaimed state
+exists: `workspaces.claimed_at` and `users.is_provisional`. The second cannot be
+inferred from a null `password_hash` — an OAuth user has one of those too, and
+MVP-1 adds GitHub OAuth.
+
+**118 tests pass.** Eighteen deliberate mutations were each killed, eleven of
+them on the new gates: a failed challenge treated as a pass, truthiness instead
+of strict equality on `success`, an unreachable siteverify failing open, a
+trusted non-200, skipped hostname pinning, an off-by-one in the limiter, a
+corrupt counter read as unlimited, the endpoint running with no secret
+configured, the verification result ignored, the limiter moved after Turnstile,
+and the sandbox key granted `keys:create`.
+
+**Two things running the tests taught us, that reading the docs would not.**
+
+- **D1 enforces foreign keys**, and a batch rolls back on violation — verified,
+  not assumed. But `organizations.owner_user_id` carries no `REFERENCES` clause:
+  05 PART 11.1 deliberately leaves it unconstrained, so it is the one parent
+  link the database will not enforce. An earlier version of the atomicity test
+  used exactly that column and therefore proved nothing.
+- **zod applies `.trim()` before `.regex()`**, so `"  bot  "` is a valid agent
+  name that gets stored tidy rather than a rejection. That ordering is the whole
+  difference between two defensible behaviours and is invisible in the schema,
+  so it now has its own test.
+
+**Deferred, with reasons.**
+
+- **`Idempotency-Key` is not honoured yet** (05 PART 13 asks for it on every
+  creating POST). It wants to be one shared middleware over every such route;
+  building it for the only one that exists today invites a second, divergent
+  implementation when the rest arrive in Phase 4.
+
 **Still to do — the human half.** Sessions, refresh rotation, CSRF
 double-submit. **Argon2id remains unresolved and must be measured, not assumed**
 (06 PART 16.5): it is CPU-bound and Workers caps CPU per request. bcrypt is the
@@ -136,6 +180,16 @@ not block the round-trip.
   literally, but by the time we see it the key is already in Cloudflare's
   access logs and the caller's shell history — it is burned either way, and
   only a loud failure gets it rotated.
-- **Zod is not used yet.** It is still the choice for request-body validation
-  when Phase 3 adds routes that parse bodies. Nothing in the auth path parses a
-  body, so adding the dependency now would be a dependency with no caller.
+- **Zod is in, as the recorded choice.** Added at the first route that parses a
+  body (`POST /v1/workspaces`), not before. It costs ~120 KB gzipped in the
+  bundle, which is comfortably inside the Worker size limit.
+- **The bootstrap was built fully rather than behind a temporary gate.** The
+  alternative considered was a secret-gated stand-in until Turnstile landed.
+  Building it properly means the endpoint is the one 05 PART 13 specifies, and
+  the product's own headline onboarding flow — an agent self-provisioning a
+  trial workspace — is exercised now rather than first tried in anger later.
+- **`TURNSTILE_SECRET_KEY` is optional in CI, deliberately.** The route refuses
+  to run without it, so a missing secret disables exactly that endpoint and
+  nothing else. Making CI require it would mean the whole API cannot ship until
+  the widget exists — trading a working deploy for a check the code already
+  makes. CI warns loudly instead.

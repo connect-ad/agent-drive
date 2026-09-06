@@ -13,6 +13,7 @@ declare global {
     interface Env extends WorkerEnv {
       /** Migrations read from disk by vitest.config.ts, applied in setup. */
       TEST_MIGRATIONS: { name: string; queries: string[] }[];
+      TURNSTILE_SECRET_KEY: string;
     }
   }
 }

@@ -26,7 +26,10 @@ preview_urls = false
 # ---------------------------------------------------------------- dev ---
 [env.dev]
 name = "agentdisk-dev-api"
-vars = { ENVIRONMENT = "dev" }
+# TURNSTILE_ALLOWED_HOSTNAMES pins which hostname a Turnstile challenge may have
+# been solved on. Public configuration, not a secret - the secret half is pushed
+# separately by CI. Left empty the check is skipped.
+vars = { ENVIRONMENT = "dev", TURNSTILE_ALLOWED_HOSTNAMES = "app-dev.agentdisk.io,api-dev.agentdisk.io" }
 
 [[env.dev.d1_databases]]
 binding = "DB"
@@ -54,7 +57,7 @@ dead_letter_queue = "agentdisk-dev-jobs-dlq"
 # --------------------------------------------------------------- prod ---
 [env.prod]
 name = "agentdisk-prod-api"
-vars = { ENVIRONMENT = "prod" }
+vars = { ENVIRONMENT = "prod", TURNSTILE_ALLOWED_HOSTNAMES = "app.agentdisk.io,api.agentdisk.io" }
 
 [[env.prod.d1_databases]]
 binding = "DB"

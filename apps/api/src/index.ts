@@ -10,6 +10,7 @@ import { toErrorResponse, ApiError } from "./lib/errors";
 import { newId } from "./lib/ids";
 import { withAuth, type Requirement, type Handler } from "./middleware/auth";
 import { whoami } from "./routes/whoami";
+import { createWorkspace } from "./routes/create-workspace";
 
 export interface Env {
   DB: D1Database;
@@ -17,6 +18,13 @@ export interface Env {
   CACHE: KVNamespace;
   JOBS: Queue;
   ENVIRONMENT: string;
+  /**
+   * Turnstile's server-side secret, pushed by CI via `wrangler secret put`.
+   * Absent means POST /v1/workspaces refuses to run rather than running ungated.
+   */
+  TURNSTILE_SECRET_KEY?: string;
+  /** Optional comma-separated hostname pinning for the Turnstile response. */
+  TURNSTILE_ALLOWED_HOSTNAMES?: string;
 }
 
 export interface HealthReport {
@@ -75,6 +83,17 @@ export default {
           requirement,
           handler
         );
+
+      // Public, and the only route that creates anything without a credential.
+      // Its gates - a per-IP rate limit and Turnstile - live inside the handler.
+      if (route === "POST /v1/workspaces") {
+        return await createWorkspace(request, {
+          db: env.DB,
+          kv: env.CACHE,
+          turnstileSecret: env.TURNSTILE_SECRET_KEY,
+          allowedHostnames: env.TURNSTILE_ALLOWED_HOSTNAMES,
+        });
+      }
 
       if (route === "GET /v1/whoami") {
         // Any valid credential; no particular capability. 13's table says "Self".

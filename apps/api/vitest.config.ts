@@ -20,7 +20,13 @@ export default defineConfig(async () => {
         singleWorker: true,
         wrangler: { configPath: "./wrangler.toml", environment: "dev" },
         miniflare: {
-          bindings: { TEST_MIGRATIONS: migrations },
+          bindings: {
+            TEST_MIGRATIONS: migrations,
+            // POST /v1/workspaces refuses to run without this, by design. The
+            // value is irrelevant - every test stubs the siteverify call - but
+            // it has to be present or the route fails closed before its gates.
+            TURNSTILE_SECRET_KEY: "test-turnstile-secret",
+          },
         },
       }),
     ],

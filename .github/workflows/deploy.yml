@@ -208,6 +208,26 @@ jobs:
             echo "Set $name"
           done
 
+      # Turnstile gates POST /v1/workspaces, the one endpoint that creates
+      # resources without a credential. It is optional here on purpose: the
+      # route itself refuses to run when the secret is absent (see
+      # src/routes/create-workspace.ts), so a missing secret disables exactly
+      # that endpoint rather than failing the whole deploy. Making it required
+      # would mean the API cannot ship at all until the widget exists, which
+      # trades a working deploy for a check the code already enforces.
+      - name: Push the Turnstile secret, if one is configured
+        working-directory: apps/api
+        env:
+          TURNSTILE_SECRET_KEY: ${{ secrets.TURNSTILE_SECRET_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TURNSTILE_SECRET_KEY:-}" ]; then
+            echo "::warning::TURNSTILE_SECRET_KEY is not set in the $ENVIRONMENT_NAME environment. POST /v1/workspaces will refuse every request until it is. Every other route is unaffected."
+            exit 0
+          fi
+          printf '%s' "$TURNSTILE_SECRET_KEY" | npx wrangler secret put TURNSTILE_SECRET_KEY --env "$WORKSPACE"
+          echo "Set TURNSTILE_SECRET_KEY"
+
       # Migrations run BEFORE the code deploy so new code never meets an old
       # schema. This assumes additive, backward-compatible migrations, which is
       # the standard the design docs already set.

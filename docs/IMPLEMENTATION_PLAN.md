@@ -15,8 +15,8 @@ is that prompt under its original number. No document is actually missing.
 | Phase | Scope | Status |
 |---|---|---|
 | 0 | Foundation | **Done** — superseded by the infra work |
-| 1 | Data layer — schema, scoped repositories, isolation tests | In progress |
-| 2 | Authentication — API keys, sessions, authz middleware | Not started |
+| 1 | Data layer — schema, scoped repositories, isolation tests | **Done** |
+| 2 | Authentication — API keys, sessions, authz middleware | Next |
 | 3 | Storage core — R2 presigned upload/download, file/folder CRUD | Not started |
 | 4 | REST API — full PART 13 surface, OpenAPI, rate limits | Not started |
 | 5 | MCP server — 10 tools over the same services | Not started |
@@ -46,7 +46,7 @@ Two deviations from doc 08's Phase 0 text, both deliberate:
 - **CI is built, and differs from doc 09/10's sketch.** It follows
   `12-deployment-roadmap-agentdisk-io.md`, which is newer and environment-aware.
 
-### Phase 1 — Data layer (in progress)
+### Phase 1 — Data layer (done)
 
 1. Migration `0002` — the full PART 11.1 schema: organizations, users,
    memberships, workspaces, agents, api_keys, folders, files, file_tags,
@@ -63,9 +63,34 @@ Two deviations from doc 08's Phase 0 text, both deliberate:
    not mocks: a repository scoped to workspace A must not read, update, or delete
    workspace B's rows even when explicitly asked for them by ID.
 
-**Done when:** migrations apply cleanly to a fresh D1; isolation tests pass;
-`wrangler d1 migrations apply` succeeds against `agentdisk-dev-db` through the
-pipeline.
+**Done.** 22 tests pass against real D1 in the Workers runtime; migration 0002
+applied to the remote `agentdisk-dev-db` through the pipeline (27 commands).
+
+The isolation tests were mutation-checked: removing the workspace filter from
+`getById` fails exactly the two tests asserting it. A security test that cannot
+fail is not evidence, so this check is worth repeating whenever they change.
+
+### Phase 2 — Authentication (next)
+
+Order within the phase: **API-key auth first**, then human sessions. Agent keys
+are what the file round-trip in roadmap step 27 actually needs, and the key path
+is the simpler of the two to get right. This is ordering within Phase 2, not
+skipping ahead to Phase 3.
+
+1. Key generation and verification (06 PART 15.3/16.4): `ask_live_` prefix,
+   SHA-256 of the secret stored, raw secret shown once and never persisted.
+   Never accepted in a query string - only the `Authorization` header.
+2. The authorization middleware chain (06 PART 15.2/16.1) as the one place every
+   request passes through: authenticate → resolve scope → resolve workspace →
+   authorize → quota → build the scoped repositories.
+3. Scope enforcement: ops (`read`/`write`) and `pathPrefix`, per the `scopes`
+   JSON column.
+4. Human auth: sessions, refresh rotation, CSRF double-submit.
+
+**Argon2id remains unresolved and must be measured, not assumed** (06 PART 16.5).
+It is CPU-bound and Workers caps CPU per request. bcrypt is the documented
+fallback. This only blocks password login, not API keys, so it does not block
+the round-trip.
 
 ### Decisions taken here (flagged, not silent)
 

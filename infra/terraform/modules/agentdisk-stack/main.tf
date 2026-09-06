@@ -253,12 +253,28 @@ resource "cloudflare_turnstile_widget" "bootstrap" {
 # upload and download URLs (05 PART 12.2/12.3) need S3 credentials the binding
 # does not carry. Cloudflare derives those from an ordinary API token:
 # Access Key ID is the token's id, Secret Access Key is SHA-256 of its value.
-data "cloudflare_account_permission_groups" "r2_object_rw" {
+# NOTE: this is the *api_token* permission-group list, not
+# cloudflare_account_permission_groups. The latter lists the groups used for
+# account MEMBER roles and contains no R2 entries at all - it returned an empty
+# list on the first apply, which the precondition below caught.
+data "cloudflare_account_api_token_permission_groups_list" "token_groups" {
   account_id = var.account_id
 
   # "Object Read and Write" in the dashboard's R2 token UI: read, write and
   # list objects within a bucket, with no bucket-management rights at all.
-  name = "Workers R2 Storage Bucket Item Write"
+  name = local.r2_permission_group_name
+}
+
+locals {
+  r2_permission_group_name = "Workers R2 Storage Bucket Item Write"
+
+  # The API's `name` parameter is a filter, not an exact match, so narrow it
+  # again here. Relying on the server to return exactly one row would mean a
+  # future group called "...Bucket Item Write V2" silently becomes a candidate.
+  r2_permission_groups = [
+    for group in data.cloudflare_account_api_token_permission_groups_list.token_groups.result :
+    group if group.name == local.r2_permission_group_name
+  ]
 }
 
 resource "cloudflare_account_token" "r2_signing" {
@@ -269,7 +285,7 @@ resource "cloudflare_account_token" "r2_signing" {
     effect = "allow"
 
     permission_groups = [{
-      id = one(data.cloudflare_account_permission_groups.r2_object_rw.result).id
+      id = one(local.r2_permission_groups).id
     }]
 
     # Scoped to this environment's bucket alone. The account-level alternative
@@ -282,15 +298,17 @@ resource "cloudflare_account_token" "r2_signing" {
 
   lifecycle {
     precondition {
-      condition     = length(data.cloudflare_account_permission_groups.r2_object_rw.result) == 1
+      condition     = length(local.r2_permission_groups) == 1
       error_message = <<-MSG
-        Expected exactly one permission group named
-        "Workers R2 Storage Bucket Item Write", found
-        ${length(data.cloudflare_account_permission_groups.r2_object_rw.result)}.
+        Expected exactly one API-token permission group named
+        "${local.r2_permission_group_name}", found ${length(local.r2_permission_groups)}.
 
-        Cloudflare renamed or split the group. Do not guess which of the
-        matches is right - a wrong permission group here either breaks
-        presigning or grants this token more than object access.
+        Zero usually means the deploy token cannot read permission groups: it
+        needs Account -> API Tokens: Edit, which also lets it create the token
+        below. More than one means Cloudflare split or renamed the group.
+
+        Do not guess which match is right - a wrong permission group here
+        either breaks presigning or grants this token more than object access.
       MSG
     }
   }

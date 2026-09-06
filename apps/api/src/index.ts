@@ -25,6 +25,20 @@ export interface Env {
   TURNSTILE_SECRET_KEY?: string;
   /** Optional comma-separated hostname pinning for the Turnstile response. */
   TURNSTILE_ALLOWED_HOSTNAMES?: string;
+
+  /**
+   * R2 S3-endpoint identifiers, injected from `terraform output -json`. Not
+   * secrets: they name the endpoint presigned URLs are signed against.
+   */
+  R2_ACCOUNT_ID?: string;
+  R2_BUCKET_NAME?: string;
+  /**
+   * The S3 key pair that actually signs those URLs, pushed by CI via
+   * `wrangler secret put`. The FILES binding cannot presign - R2Bucket has no
+   * such method - so presigning needs a credential the binding does not carry.
+   */
+  R2_ACCESS_KEY_ID?: string;
+  R2_SECRET_ACCESS_KEY?: string;
 }
 
 export interface HealthReport {

@@ -50,3 +50,15 @@ output "web_url" {
   description = "Base URL of the dashboard SPA, used by the deploy smoke test."
   value       = module.stack.web_url
 }
+
+output "account_id" {
+  description = <<-DESC
+    Cloudflare account ID, injected into wrangler.toml as R2_ACCOUNT_ID.
+
+    An identifier, not a credential - it names the R2 S3 endpoint host that
+    presigned URLs are signed against (05 PART 12.2). It is an output rather
+    than a hand-typed var for the same reason every other ID here is: so
+    nothing in wrangler.toml can drift from what Terraform actually built.
+  DESC
+  value       = var.account_id
+}

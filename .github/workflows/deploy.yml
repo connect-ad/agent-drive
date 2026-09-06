@@ -228,6 +228,31 @@ jobs:
           printf '%s' "$TURNSTILE_SECRET_KEY" | npx wrangler secret put TURNSTILE_SECRET_KEY --env "$WORKSPACE"
           echo "Set TURNSTILE_SECRET_KEY"
 
+      # R2's S3-compatible credentials, used only to presign upload/download
+      # URLs (05 PART 12.2/12.3). The FILES binding cannot presign - the
+      # R2Bucket interface has no such method - so this is a separate credential
+      # from the binding, and like Turnstile it is optional: without it the
+      # presigned-URL routes refuse, and everything else still deploys.
+      - name: Push the R2 signing credentials, if configured
+        working-directory: apps/api
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${R2_ACCESS_KEY_ID:-}" ] && [ -z "${R2_SECRET_ACCESS_KEY:-}" ]; then
+            echo "::warning::R2_ACCESS_KEY_ID/R2_SECRET_ACCESS_KEY are not set in the $ENVIRONMENT_NAME environment. Presigned upload and download URLs will refuse until they are."
+            exit 0
+          fi
+          if [ -z "${R2_ACCESS_KEY_ID:-}" ] || [ -z "${R2_SECRET_ACCESS_KEY:-}" ]; then
+            echo "::error::Only one half of the R2 signing credentials is set. Half-configured signing is a deploy mistake, not a supported state."
+            exit 1
+          fi
+          for name in R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY; do
+            printf '%s' "${!name}" | npx wrangler secret put "$name" --env "$WORKSPACE"
+            echo "Set $name"
+          done
+
       # Migrations run BEFORE the code deploy so new code never meets an old
       # schema. This assumes additive, backward-compatible migrations, which is
       # the standard the design docs already set.

@@ -29,7 +29,7 @@ name = "agentdisk-dev-api"
 # TURNSTILE_ALLOWED_HOSTNAMES pins which hostname a Turnstile challenge may have
 # been solved on. Public configuration, not a secret - the secret half is pushed
 # separately by CI. Left empty the check is skipped.
-vars = { ENVIRONMENT = "dev", TURNSTILE_ALLOWED_HOSTNAMES = "app-dev.agentdisk.io,api-dev.agentdisk.io" }
+vars = { ENVIRONMENT = "dev", TURNSTILE_ALLOWED_HOSTNAMES = "app-dev.agentdisk.io,api-dev.agentdisk.io", R2_ACCOUNT_ID = "TF_OUTPUT_account_id", R2_BUCKET_NAME = "TF_OUTPUT_r2_bucket_name" }
 
 [[env.dev.d1_databases]]
 binding = "DB"
@@ -57,7 +57,7 @@ dead_letter_queue = "agentdisk-dev-jobs-dlq"
 # --------------------------------------------------------------- prod ---
 [env.prod]
 name = "agentdisk-prod-api"
-vars = { ENVIRONMENT = "prod", TURNSTILE_ALLOWED_HOSTNAMES = "app.agentdisk.io,api.agentdisk.io" }
+vars = { ENVIRONMENT = "prod", TURNSTILE_ALLOWED_HOSTNAMES = "app.agentdisk.io,api.agentdisk.io", R2_ACCOUNT_ID = "TF_OUTPUT_account_id", R2_BUCKET_NAME = "TF_OUTPUT_r2_bucket_name" }
 
 [[env.prod.d1_databases]]
 binding = "DB"

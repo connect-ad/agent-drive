@@ -59,6 +59,59 @@ export class WorkspaceScopedFiles extends WorkspaceScoped {
     return result.results ?? [];
   }
 
+  /**
+   * One page of a listing, keyset-paginated.
+   *
+   * The cursor is the last ID of the previous page and the order is `id DESC`.
+   * That works because IDs are ULIDs, so string order *is* creation order and a
+   * single total-ordered column can carry both the sort and the cursor. OFFSET
+   * pagination would have been simpler to write and wrong in the way that only
+   * shows up under concurrent writes: rows inserted mid-scan shift the window
+   * and a client walking pages silently skips or repeats files.
+   *
+   * `limit + 1` rows are fetched so the caller can tell "this page is full"
+   * from "there is another page" without a second COUNT query.
+   */
+  async listPage(pathPrefix: string, limit: number, cursor: string | null): Promise<FileRow[]> {
+    const like = `${escapeLikePattern(pathPrefix === "/" ? "" : pathPrefix)}%`;
+    const statement =
+      cursor === null
+        ? this.db
+            .prepare(
+              `SELECT * FROM files
+                WHERE workspace_id = ? AND path LIKE ? ESCAPE '\\' AND deleted_at IS NULL
+                ORDER BY id DESC LIMIT ?`
+            )
+            .bind(this.workspaceId, like, limit + 1)
+        : this.db
+            .prepare(
+              `SELECT * FROM files
+                WHERE workspace_id = ? AND path LIKE ? ESCAPE '\\' AND deleted_at IS NULL
+                  AND id < ?
+                ORDER BY id DESC LIMIT ?`
+            )
+            .bind(this.workspaceId, like, cursor, limit + 1);
+    const result = await statement.all<FileRow>();
+    return result.results ?? [];
+  }
+
+  /**
+   * An upload that was started and never finished (12.2 step 7).
+   *
+   * Only ever applied to a row still in `pending`: a file that reached `active`
+   * has bytes in R2 and must not be walked back by a late failure report.
+   */
+  async markFailed(id: string, now: number): Promise<boolean> {
+    const result = await this.db
+      .prepare(
+        `UPDATE files SET status = 'failed', updated_at = ?
+         WHERE workspace_id = ? AND id = ? AND status = 'pending'`
+      )
+      .bind(now, this.workspaceId, id)
+      .run();
+    return (result.meta.changes ?? 0) > 0;
+  }
+
   async insert(row: FileRow): Promise<void> {
     if (row.workspace_id !== this.workspaceId) {
       // Defence in depth: the caller built a row for another workspace. Writing
@@ -116,6 +169,87 @@ export class WorkspaceScopedFiles extends WorkspaceScoped {
       .bind(now, this.workspaceId, id)
       .run();
     return (result.meta.changes ?? 0) > 0;
+  }
+
+  /**
+   * A soft-deleted row, for the restore path (12.6).
+   *
+   * Deliberately a separate method rather than a flag on getById. Every other
+   * read in the system must exclude deleted rows, and an `includeDeleted`
+   * parameter would make that a decision each caller can get wrong. This one
+   * returns *only* deleted rows, so reaching for it is always explicit.
+   */
+  async getDeletedById(id: string): Promise<FileRow | null> {
+    return this.db
+      .prepare(`SELECT * FROM files WHERE workspace_id = ? AND id = ? AND deleted_at IS NOT NULL`)
+      .bind(this.workspaceId, id)
+      .first<FileRow>();
+  }
+
+  async updateMetadata(
+    id: string,
+    caption: string | null,
+    customMetadata: string | null,
+    now: number
+  ): Promise<boolean> {
+    const result = await this.db
+      .prepare(
+        `UPDATE files SET caption = ?, custom_metadata = ?, updated_at = ?
+         WHERE workspace_id = ? AND id = ? AND deleted_at IS NULL`
+      )
+      .bind(caption, customMetadata, now, this.workspaceId, id)
+      .run();
+    return (result.meta.changes ?? 0) > 0;
+  }
+
+  async getTags(fileId: string): Promise<string[]> {
+    const result = await this.db
+      .prepare(
+        `SELECT t.tag FROM file_tags t
+           JOIN files f ON f.id = t.file_id
+          WHERE t.file_id = ? AND f.workspace_id = ?
+          ORDER BY t.tag`
+      )
+      .bind(fileId, this.workspaceId)
+      .all<{ tag: string }>();
+    return (result.results ?? []).map((row) => row.tag);
+  }
+
+  /**
+   * Replace a file's tags.
+   *
+   * `file_tags` has no workspace_id column of its own - it is scoped through
+   * the file it points at. So every statement here re-proves that ownership in
+   * SQL (`WHERE EXISTS (... files ... workspace_id = ?)`) rather than trusting
+   * that the caller looked the file up through a scoped repository first. A
+   * write that names another workspace's file affects zero rows instead of
+   * tagging it.
+   */
+  async setTags(fileId: string, tags: string[]): Promise<void> {
+    const unique = [...new Set(tags.map((tag) => tag.trim()).filter((tag) => tag !== ""))];
+
+    const statements = [
+      this.db
+        .prepare(
+          `DELETE FROM file_tags
+            WHERE file_id = ?
+              AND EXISTS (SELECT 1 FROM files WHERE id = ? AND workspace_id = ?)`
+        )
+        .bind(fileId, fileId, this.workspaceId),
+      ...unique.map((tag) =>
+        this.db
+          .prepare(
+            `INSERT OR IGNORE INTO file_tags (file_id, tag)
+             SELECT ?, ?
+              WHERE EXISTS (SELECT 1 FROM files WHERE id = ? AND workspace_id = ?)`
+          )
+          .bind(fileId, tag, fileId, this.workspaceId)
+      ),
+    ];
+
+    // One batch, so a partial tag set can never be left behind by a failure
+    // between the delete and the inserts.
+    await this.db.batch(statements);
   }
 
   /** Move or rename: a pure metadata update, zero R2 operations (12.1). */

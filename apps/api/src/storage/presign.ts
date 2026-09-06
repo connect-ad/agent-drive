@@ -46,9 +46,17 @@ export class PresignConfigError extends Error {
 
 /**
  * Read the signing config out of the environment, or say precisely what is
- * missing. Returns null rather than throwing when nothing is configured at all,
- * so a caller can distinguish "this deployment has no presigning" from "this
- * deployment is half-configured", which are different bugs.
+ * missing. Returns null rather than throwing when presigning is simply switched
+ * off, so a caller can distinguish "this deployment has no presigning" from
+ * "this deployment is half-configured", which are different bugs.
+ *
+ * The CREDENTIAL PAIR is what decides which of those it is, not the count of
+ * set variables. R2_ACCOUNT_ID and R2_BUCKET_NAME are non-secret identifiers
+ * that CI injects into wrangler.toml from `terraform output` on every deploy,
+ * so they are present on any deployed Worker whether or not signing is set up.
+ * Treating "identifiers present, credentials absent" as half-configured would
+ * make the ordinary no-signing deployment look broken - and, because this is
+ * read on the request path, would have turned that into a 500 on every route.
  */
 export function readSigningConfig(env: {
   R2_ACCOUNT_ID?: string;
@@ -56,21 +64,25 @@ export function readSigningConfig(env: {
   R2_ACCESS_KEY_ID?: string;
   R2_SECRET_ACCESS_KEY?: string;
 }): R2SigningConfig | null {
+  const hasKeyId = Boolean(env.R2_ACCESS_KEY_ID);
+  const hasSecret = Boolean(env.R2_SECRET_ACCESS_KEY);
+
+  // Neither credential: presigning is off by configuration, which is a
+  // supported state. The presign paths refuse; nothing else is affected.
+  if (!hasKeyId && !hasSecret) return null;
+
   // Keyed by the environment variable name, not the config field name: whoever
   // reads this error has to go and set a variable, and "missing: accessKeyId"
   // makes them open the source to find out which one.
-  const parts: Record<string, string | undefined> = {
+  const missing = Object.entries({
     R2_ACCOUNT_ID: env.R2_ACCOUNT_ID,
     R2_BUCKET_NAME: env.R2_BUCKET_NAME,
     R2_ACCESS_KEY_ID: env.R2_ACCESS_KEY_ID,
     R2_SECRET_ACCESS_KEY: env.R2_SECRET_ACCESS_KEY,
-  };
-
-  const missing = Object.entries(parts)
+  })
     .filter(([, value]) => !value)
     .map(([name]) => name);
 
-  if (missing.length === 4) return null;
   if (missing.length > 0) {
     throw new PresignConfigError(`R2 presigning is half-configured; missing: ${missing.join(", ")}`);
   }

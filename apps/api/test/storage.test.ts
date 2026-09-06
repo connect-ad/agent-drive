@@ -114,16 +114,37 @@ describe("readSigningConfig", () => {
     expect(readSigningConfig({})).toBe(null);
   });
 
-  it("throws when it is half-configured, naming what is missing", () => {
+  it("returns null when the identifiers are set but neither credential is", () => {
+    // The normal state of a deployment without a signing token. CI always
+    // injects R2_ACCOUNT_ID and R2_BUCKET_NAME from `terraform output`, so
+    // treating their presence as half-configured would make every ordinary
+    // no-signing deploy look broken - and, because this is read on the request
+    // path, would 500 every route rather than just the presign ones.
+    expect(
+      readSigningConfig({ R2_ACCOUNT_ID: "x", R2_BUCKET_NAME: "y" })
+    ).toBe(null);
+  });
+
+  it("throws when one credential is set without the other, naming what is missing", () => {
     // Half-configured and not-configured are different bugs and must not look
     // the same: one is a deploy that forgot a secret, the other is by design.
     try {
-      readSigningConfig({ R2_ACCOUNT_ID: "x", R2_BUCKET_NAME: "y" });
+      readSigningConfig({ R2_ACCOUNT_ID: "x", R2_BUCKET_NAME: "y", R2_ACCESS_KEY_ID: "c" });
       throw new Error("expected a throw");
     } catch (err) {
       expect(err).toBeInstanceOf(PresignConfigError);
-      expect((err as Error).message).toContain("R2_ACCESS_KEY_ID");
       expect((err as Error).message).toContain("R2_SECRET_ACCESS_KEY");
+    }
+  });
+
+  it("throws when credentials are set but the endpoint identifiers are not", () => {
+    try {
+      readSigningConfig({ R2_ACCESS_KEY_ID: "c", R2_SECRET_ACCESS_KEY: "d" });
+      throw new Error("expected a throw");
+    } catch (err) {
+      expect(err).toBeInstanceOf(PresignConfigError);
+      expect((err as Error).message).toContain("R2_ACCOUNT_ID");
+      expect((err as Error).message).toContain("R2_BUCKET_NAME");
     }
   });
 

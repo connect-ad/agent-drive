@@ -217,6 +217,28 @@ CREATE TABLE memberships (
 );
 CREATE INDEX idx_memberships_user ON memberships(user_id);
 
+-- Refresh tokens: backs human session security (PART 15.1) and the Active Sessions UI (PART 8.23).
+-- The 15-minute access-token JWT is stateless and verified by signature alone — it is never
+-- looked up here. This table exists purely to track the long-lived refresh-token side so a
+-- session can be listed and individually revoked, and so token-reuse-after-rotation can
+-- invalidate the whole family (PART 16.6).
+CREATE TABLE refresh_tokens (
+  id TEXT PRIMARY KEY,               -- 'rft_' + ULID
+  user_id TEXT NOT NULL REFERENCES users(id),
+  family_id TEXT NOT NULL,           -- shared across every rotation of one login session;
+                                      -- revoking by family_id kills that whole session lineage
+  token_hash TEXT NOT NULL UNIQUE,   -- SHA-256(token), hex — raw token is never stored, mirrors api_keys.key_hash
+  device_label TEXT,                 -- parsed User-Agent, e.g. "Chrome on macOS", for the Active Sessions list
+  ip_created TEXT,
+  last_used_at INTEGER,
+  expires_at INTEGER NOT NULL,       -- 30 days from issuance (PART 15.1)
+  revoked_at INTEGER,                -- set on logout, explicit "Sign out" of this session, or
+                                      -- reuse-detected rotation defense (the whole family gets this set)
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX idx_refresh_tokens_user ON refresh_tokens(user_id);
+CREATE INDEX idx_refresh_tokens_family ON refresh_tokens(family_id);
+
 -- Workspaces: primary container; quota + billing plan attach here
 CREATE TABLE workspaces (
   id TEXT PRIMARY KEY,               -- 'ws_' + ULID
@@ -345,6 +367,12 @@ CREATE TABLE webhooks (
 );
 CREATE INDEX idx_webhooks_workspace ON webhooks(workspace_id);
 ```
+
+### 11.1a Session & Ephemeral-Token Storage — Filling a Gap Between PART 15/PART 8.23 and This Schema
+
+**PROPOSAL — closing a real gap.** `06-security-privacy-legal.md` PART 15.1 states that "the refresh token family is tracked, to support the 'active sessions' list," and `03-ux-architecture-and-screens.md` §8.23 designs that Active Sessions screen in full — but neither file previously named the table that backs it. That's the `refresh_tokens` table above: each row is one issued refresh token (superseded on every rotation, with the old row's `revoked_at` set and a new row inserted sharing the same `family_id`); the Active Sessions UI lists the *current, unrevoked* row per `family_id` for the logged-in user, keyed by `device_label`/`last_used_at`; "Sign out" (per-row) revokes that one family; "Sign out all other sessions" revokes every family except the caller's own current one.
+
+**Magic-link and password-reset tokens are deliberately *not* a D1 table.** Both are single-use, short-lived (15 minutes for magic-link per PART 15.1; a similar short window for password reset), and need no relational query capability — a D1 table for them would need constant pruning of expired rows for no benefit. Store them in **KV instead**, keyed by `SHA-256(token)`, value `{userId, purpose: "magic_link"|"password_reset", expiresAt}`, using KV's native `expirationTtl` so expired entries are dropped automatically rather than needing a cleanup job. Verification deletes the KV entry immediately on first use (enforcing single-use) rather than only checking an "already used" flag. This is consistent with how KV is already used elsewhere in this design for short-TTL, no-durability-required data (PART 10.1).
 
 ### 11.2 Why Metadata Is Inline on `files`, Not a Separate Table
 

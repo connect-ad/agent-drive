@@ -1,9 +1,11 @@
 /**
  * AgentDrive API Worker.
  *
- * Routing is a switch, not a framework. There are two routes; a router library
- * would be more code than the thing it routes. It becomes worth revisiting when
- * the full 05 PART 13 surface lands.
+ * Routing is hand-written rather than a framework: the surface is small, every
+ * path is one of two shapes, and a router library would be more code than the
+ * thing it routes. What it does NOT do is pattern-match on strings - the path
+ * is split into segments once and matched structurally, so a route can never
+ * be reached by a URL that merely looks similar.
  */
 
 import { toErrorResponse, ApiError } from "./lib/errors";
@@ -11,6 +13,17 @@ import { newId } from "./lib/ids";
 import { withAuth, type Requirement, type Handler } from "./middleware/auth";
 import { whoami } from "./routes/whoami";
 import { createWorkspace } from "./routes/create-workspace";
+import {
+  completeFile,
+  createFile,
+  deleteFile,
+  downloadFile,
+  getFile,
+  listFiles,
+  patchFile,
+  restoreFile,
+} from "./routes/files";
+import { readSigningConfig, type R2SigningConfig } from "./storage/presign";
 
 export interface Env {
   DB: D1Database;
@@ -58,6 +71,31 @@ export function buildHealth(env: Pick<Env, "ENVIRONMENT">, now: Date): HealthRep
   };
 }
 
+/** A handler for a route that names one file in its URL. */
+type FileHandler = (
+  ctx: Parameters<Handler>[0],
+  request: Request,
+  fileId: string
+) => Promise<Response>;
+
+/**
+ * Read the R2 signing credentials, or explain why there are none.
+ *
+ * Null (nothing configured) is a supported state - dev runs that way until the
+ * signing token exists, and the presign path refuses cleanly. A HALF-configured
+ * deployment is not: that is a mistake, and it becomes a 500 naming the missing
+ * variables in the log rather than a confusing signature failure later.
+ */
+function signingConfig(env: Env): R2SigningConfig | null {
+  try {
+    return readSigningConfig(env);
+  } catch (err) {
+    throw new ApiError("INTERNAL_ERROR", "Something went wrong on our end.", {
+      internalReason: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -91,6 +129,8 @@ export default {
           request,
           {
             db: env.DB,
+            files: env.FILES,
+            signing: () => signingConfig(env),
             requestId: id,
             waitUntil: (promise) => ctx.waitUntil(promise),
           },
@@ -112,6 +152,44 @@ export default {
       if (route === "GET /v1/whoami") {
         // Any valid credential; no particular capability. 13's table says "Self".
         return await authed({ op: null }, whoami);
+      }
+
+      // Everything below is /v1/files. Segments, not string prefixes: matching
+      // on `pathname.startsWith("/v1/files")` would also match "/v1/filesX".
+      const segments = url.pathname.split("/").filter((segment) => segment !== "");
+      if (segments[0] === "v1" && segments[1] === "files") {
+        const fileId = segments[2];
+        const action = segments[3];
+
+        if (fileId === undefined) {
+          if (request.method === "POST") return await authed({ op: "write" }, createFile);
+          if (request.method === "GET") return await authed({ op: "list" }, listFiles);
+          throw new ApiError("NOT_FOUND", "No such route.");
+        }
+
+        // A handler bound to the ID from the URL, so no handler parses the path
+        // itself and none can disagree with the router about which file it is.
+        const onFile = (requirement: Requirement, handler: FileHandler): Promise<Response> =>
+          authed(requirement, (authCtx, req) => handler(authCtx, req, fileId));
+
+        if (action === undefined) {
+          if (request.method === "GET") return await onFile({ op: "read" }, getFile);
+          if (request.method === "PATCH") return await onFile({ op: "write" }, patchFile);
+          if (request.method === "DELETE") return await onFile({ op: "delete" }, deleteFile);
+          throw new ApiError("NOT_FOUND", "No such route.");
+        }
+
+        if (segments.length === 4 && request.method === "POST" && action === "complete") {
+          return await onFile({ op: "write" }, completeFile);
+        }
+        if (segments.length === 4 && request.method === "GET" && action === "download") {
+          return await onFile({ op: "read" }, downloadFile);
+        }
+        // Restore takes `delete` scope, not `write`: it is the inverse of a
+        // delete, so it is the same capability (13's table).
+        if (segments.length === 4 && request.method === "POST" && action === "restore") {
+          return await onFile({ op: "delete" }, restoreFile);
+        }
       }
 
       throw new ApiError("NOT_FOUND", "No such route.");

@@ -220,7 +220,7 @@ describe("the chain's authorize step", () => {
     requirement: Parameters<typeof withAuth>[2],
     path = "/v1/files"
   ) {
-    return withAuth(request(path, token), { db: env.DB, requestId: "req_TEST" }, requirement, ok);
+    return withAuth(request(path, token), { db: env.DB, files: env.FILES, signing: null, requestId: "req_TEST" }, requirement, ok);
   }
 
   it("runs the handler when the op is granted", async () => {
@@ -257,7 +257,7 @@ describe("the chain's authorize step", () => {
     const seen: string[] = [];
     const res = await withAuth(
       request("/v1/files", token),
-      { db: env.DB, requestId: "req_TEST" },
+      { db: env.DB, files: env.FILES, signing: null, requestId: "req_TEST" },
       { op: null },
       async (ctx) => {
         seen.push(ctx.workspaceId);

@@ -26,6 +26,13 @@ export default defineConfig(async () => {
             // value is irrelevant - every test stubs the siteverify call - but
             // it has to be present or the route fails closed before its gates.
             TURNSTILE_SECRET_KEY: "test-turnstile-secret",
+            // Presigning needs a key pair to produce a signature at all. These
+            // are fake and never verified by anything - the tests assert the
+            // URL's shape and scope, not that R2 would accept it - but without
+            // them every presign path would return "not configured" and the
+            // upload and download routes would go untested.
+            R2_ACCESS_KEY_ID: "test-access-key-id",
+            R2_SECRET_ACCESS_KEY: "test-secret-access-key",
           },
         },
       }),

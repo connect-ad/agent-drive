@@ -14,6 +14,8 @@ declare global {
       /** Migrations read from disk by vitest.config.ts, applied in setup. */
       TEST_MIGRATIONS: { name: string; queries: string[] }[];
       TURNSTILE_SECRET_KEY: string;
+      R2_ACCESS_KEY_ID: string;
+      R2_SECRET_ACCESS_KEY: string;
     }
   }
 }

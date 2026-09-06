@@ -19,6 +19,7 @@ import { ApiError, forbidden } from "../lib/errors";
 import { limitsFor, type PlanLimits } from "../lib/plans";
 import { assertWithinQuota, type QuotaDemand } from "../lib/quota";
 import { createWorkspaceContext, type WorkspaceContext } from "../db/workspace-scoped";
+import { WorkspaceScopedStorage, type SigningSource } from "../storage/workspace-scoped";
 import {
   findWorkspaceById,
   shouldTouchLastUsed,
@@ -39,6 +40,11 @@ export interface AuthContext {
   limits: PlanLimits;
   /** Repositories bound to this workspace. The only database access a handler gets. */
   db: WorkspaceContext;
+  /**
+   * Object storage bound to this workspace, for the same reason as `db`: a raw
+   * R2 binding reaches every tenant's bytes, so handlers never see one.
+   */
+  storage: WorkspaceScopedStorage;
 }
 
 export interface Requirement {
@@ -53,7 +59,12 @@ export interface Requirement {
   demand?: QuotaDemand;
 }
 
-export type Handler = (ctx: AuthContext) => Promise<Response>;
+/**
+ * Handlers take the request as well as the context because most of them need a
+ * body or a query string. They still never take an Env - the context is the
+ * only route to data, and everything on it is already workspace-bound.
+ */
+export type Handler = (ctx: AuthContext, request: Request) => Promise<Response>;
 
 /**
  * Step 3. For an API key the workspace comes off the key row, full stop.
@@ -93,6 +104,13 @@ async function resolveWorkspace(
 
 export interface WithAuthDeps {
   db: D1Database;
+  files: R2Bucket;
+  /**
+   * Null when this deployment has no R2 signing credentials; presigning then
+   * refuses. A thunk defers reading them to the routes that presign, so a
+   * misconfiguration cannot fail routes that never touch R2.
+   */
+  signing: SigningSource;
   requestId: string;
   now?: number;
   /** Somewhere to put the last_used_at write so it stays off the response path. */
@@ -154,10 +172,11 @@ export async function withAuth(
     workspace,
     limits,
     db: createWorkspaceContext(deps.db, identity.workspaceId),
+    storage: new WorkspaceScopedStorage(deps.files, deps.signing, identity.workspaceId),
   };
 
   // 6.
-  return handler(ctx);
+  return handler(ctx, request);
 }
 
 export { shouldTouchLastUsed, touchLastUsed };

@@ -11,6 +11,7 @@ import Usage from './routes/Usage.jsx';
 import Settings from './routes/Settings.jsx';
 import Profile from './routes/Profile.jsx';
 import { NotFound, Forbidden, ServerError, Maintenance } from './routes/ErrorPages.jsx';
+import { Sandbox } from './routes/Sandbox.jsx';
 import { Signup, VerifyEmail, ForgotPassword, ResetPassword, Login } from './routes/Auth.jsx';
 import { Landing, Pricing } from './routes/Marketing.jsx';
 import McpConnection from './routes/McpConnection.jsx';
@@ -128,6 +129,10 @@ export default function App() {
       </Route>
       <Route path="/login" element={<Login />} />
       <Route path="/signup" element={<Signup />} />
+      {/* Talks to the real API, unlike every other screen here: it is the one
+          way to obtain a first credential (05 PART 13's Turnstile-gated
+          POST /v1/workspaces). */}
+      <Route path="/sandbox" element={<Sandbox />} />
       <Route path="/verify-email" element={<VerifyEmail />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />
       <Route path="/reset-password" element={<ResetPassword />} />

@@ -213,13 +213,33 @@ jobs:
           echo "WEB_URL=$web_url" >> "$GITHUB_ENV"
           echo "WEB_WORKER=$web_worker" >> "$GITHUB_ENV"
 
+          # The Turnstile site key is public by design - it is embedded in the
+          # page HTML, and only the SECRET half ever reaches the Worker. It is
+          # read from Terraform rather than pasted into a variable so the widget
+          # the dashboard renders can never drift from the widget the API
+          # verifies against.
+          echo "VITE_TURNSTILE_SITE_KEY=$(terraform output -raw turnstile_sitekey)" >> "$GITHUB_ENV"
+          echo "VITE_API_BASE=$(terraform output -raw api_url)" >> "$GITHUB_ENV"
+
       - name: Install dashboard dependencies
         working-directory: apps/web
         run: npm ci
 
+      # Both values are baked into the bundle, which is correct: a site key and a
+      # hostname are public. Nothing secret may be passed here - a static bundle
+      # is readable by every visitor.
       - name: Build dashboard
         working-directory: apps/web
-        run: npm run build
+        env:
+          VITE_TURNSTILE_SITE_KEY: ${{ env.VITE_TURNSTILE_SITE_KEY }}
+          VITE_API_BASE: ${{ env.VITE_API_BASE }}
+        run: |
+          set -euo pipefail
+          if [ -z "${VITE_TURNSTILE_SITE_KEY:-}" ]; then
+            echo "::error::No Turnstile site key from Terraform; /sandbox could not create a workspace."
+            exit 1
+          fi
+          npm run build
 
       # No apply-tf-outputs.mjs step here, unlike the API: the dashboard is
       # static assets with no D1/R2/KV/Queue binding, so wrangler.toml holds no

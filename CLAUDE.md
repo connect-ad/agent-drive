@@ -245,7 +245,9 @@ declared queue consumer when the Worker exports no `queue` handler; Wrangler
 silently enables `workers.dev`, publishing a second public hostname that
 bypasses the custom domains; `cloudflare_d1_database` sends
 `read_replication: null` on update, so apply succeeds once and fails on every
-run after; and a Worker owning static assets needs `assets`/`keep_assets` in
+run after; `cloudflare_turnstile_widget` returns its `domains` list sorted, so
+declaring it in any other order made every plan propose an in-place update that
+round-tripped the widget's secret; and a Worker owning static assets needs `assets`/`keep_assets` in
 `ignore_changes` or a routine plan proposes deleting the deployed site. All are
 fixed and commented where they bite.
 

@@ -243,10 +243,19 @@ resource "cloudflare_turnstile_widget" "bootstrap" {
   # because the Worker pins the solved-on hostname against this same list
   # (TURNSTILE_ALLOWED_HOSTNAMES), and a direct API caller solving the
   # challenge itself is a supported agent flow.
-  domains = [
+  #
+  # sort() is not cosmetic. Cloudflare returns this list alphabetically, so
+  # declaring it web-first made every single plan see a reorder and propose an
+  # in-place update - the same perpetual-diff shape as cloudflare_d1_database's
+  # read_replication. It is worse here than a noisy plan: the update round-trips
+  # `secret`, so a live credential was being churned on every deploy, and the
+  # only reason nothing broke is that CI pushes the secret to the Worker after
+  # the apply. Sorting makes config and API agree, so an apply that changes
+  # nothing plans nothing.
+  domains = sort([
     local.web_hostname,
     local.api_hostname,
-  ]
+  ])
 }
 
 # R2 bindings cannot presign - R2Bucket is get/put/head/list - so presigned

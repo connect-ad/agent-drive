@@ -15,10 +15,10 @@ task.
 | `CLAUDE.md` | This route and the catalog | Source of truth for *where things are*. Not a duplicate of the specs. |
 | `docs/design/` | The specification, `NN-<slug>.md` | 11 documents, PART 1–26. The product's design authority — but see the precedence rule below. |
 | `design-system/` | Upstream mirror of the Claude Design project | **Read-only.** Byte-identical to the remote (96/96). Changes go into Claude Design, then re-import — never edit here. |
-| `apps/api/` | The Cloudflare Worker: REST + MCP, one deployable | Skeleton only — `/v1/healthz` and a bootstrap migration, so the pipeline has something real to ship. App logic comes from doc 11. |
+| `apps/api/` | The Cloudflare Worker: REST + MCP, one deployable | Auth is built: API keys, the authorization chain, the Turnstile-gated workspace bootstrap. Storage core is in progress. |
 | `infra/terraform/` | All infrastructure as code | One root config, one module, **one workspace per environment** (`dev`, `prod`). No `environments/` directories — see the workspace note below. |
-| `.github/workflows/` | CI and deployment pipelines | `ci.yml` gates PRs; `deploy-dev.yml`/`deploy-prod.yml` are thin callers of the shared `deploy.yml`, so prod can never drift from dev. |
-| `apps/web/` | The dashboard SPA | `src/components/` is vendored from `design-system/`; `src/components/index.js` is generated. Hand-written code lives in `src/routes/` and `src/components-local/`. |
+| `.github/workflows/` | CI and deployment pipelines | `ci.yml` gates PRs; `deploy-dev.yml`/`deploy-prod.yml` are thin callers of the shared `deploy.yml`, so prod can never drift from dev. `deploy-web-dev.yml` is separate on purpose — the dashboard is assets-only and shares none of the API's Terraform-output, migration or secret steps. |
+| `apps/web/` | The dashboard SPA, live at `app-dev.agentdisk.io` | `src/components/` is vendored from `design-system/`; `src/components/index.js` is generated. Hand-written code lives in `src/routes/` and `src/components-local/`. Deployed as a Workers static-assets Worker, not Pages — see [013](backlog/013-deploy-dashboard.md). |
 | `Skill/` | Reusable how-to knowledge, `<N> <Name>.md` | Procedures, commands and their calibration. Not the specification — that is `docs/design/`. |
 | `backlog/` | Outstanding tasks, `NNN-<slug>.md` | Status lives in the file; a finished item stays as a record. |
 | `.design-sync/` | Sync state and hard-won process notes | `config.json` pins the Claude Design project. `NOTES.md` holds gotchas that cost real time — read it before any file transfer. |
@@ -60,6 +60,18 @@ were not touched. See [002](backlog/002-reconcile-brand-drift.md).
   Environment secrets.
 - **Resource IDs are never typed by hand.** CI injects them into `wrangler.toml`
   from `terraform output -json`; the committed file holds `TF_OUTPUT_*` placeholders.
+- **A Worker that owns static assets needs `assets` and `keep_assets` in
+  `ignore_changes`,** not just the code attributes. Without them a routine plan
+  proposes stripping the deployed site's own files.
+- **Every authentication failure returns one identical body.** Unknown, revoked,
+  expired, forged and disabled-agent credentials must stay indistinguishable to
+  the caller — a distinguishable failure is an oracle telling an attacker which
+  of their guesses is a real key. The reason goes to the log, never the client.
+- **Scope prefixes match whole segments.** `/agents/bot` must not authorize
+  `/agents/bot-evil/secrets.txt`; a plain `startsWith` says it does.
+- **R2 bindings cannot presign.** `R2Bucket` is get/put/head/list. Presigned
+  URLs go through R2's S3 endpoint with SigV4 and need a key pair the binding
+  does not carry.
 
 ---
 
@@ -121,18 +133,20 @@ provenance), `ApiKeyDisplay` (show-once), `PermissionSelector` (least privilege)
 | 010 | [Test suite](backlog/010-test-suite.md) | Open |
 | 011 | [Rename `Worlflow.md`](backlog/011-rename-workflow-file.md) | Open — trivial |
 | 012 | [Put the project under git](backlog/012-initialise-git.md) | Done |
+| 013 | [Deploy the dashboard](backlog/013-deploy-dashboard.md) | Done — `app-dev.agentdisk.io` |
 
 ---
 
 ## Status
 
-**The UI is built. The deployment pipeline is built. The backend does not exist yet.**
+**The UI is built and deployed. The pipeline is built. The backend has auth and
+is growing storage.**
 
-`cd apps/web && npm install && npm run build` is clean — 81 modules, ~1.3 MB
-dist, 15 route files, ~3,150 lines of app source. All 31 buildable screens from
-doc 03 PART 8 are implemented: marketing, the five auth screens, the full
-workspace app, the MVP-1 surfaces, and the error pages. Doc 03 §8.31's three
-intentionally-unbuilt screens were skipped as specified.
+`cd apps/web && npm install && npm run build` is clean — 89 modules, 15 route
+files, ~3,150 lines of app source. All 31 buildable screens from doc 03 PART 8
+are implemented: marketing, the five auth screens, the full workspace app, the
+MVP-1 surfaces, and the error pages. Doc 03 §8.31's three intentionally-unbuilt
+screens were skipped as specified.
 
 Every screen composes design-system components exclusively and styles only with
 `var(--*)` tokens — verified: zero raw hex, zero imports bypassing the barrel,
@@ -140,40 +154,53 @@ and no px carrying spacing or sizing. See [Skill/1 Build](Skill/1%20Build.md)
 for what the adherence config actually checks, and why two `1px` hairlines are
 not violations. Every sidebar nav item resolves to a real route.
 
-Two honest caveats. The screens are **build-verified, not screenshot-verified** —
-they have never been rendered in a browser ([007](backlog/007-browser-verify-screens.md)).
-And every screen runs on **local mock data**; each takes a `state` prop so the
-spec'd loading / empty / error / quota states stay reachable until there is an
-API ([009](backlog/009-wire-screens-to-api.md)).
+Screens now run in a browser: four were rendered against the live dev URL and
+look right. [007](backlog/007-browser-verify-screens.md) stays open — 4 of 31
+routes, none of the `state` variants. Every screen still runs on **local mock
+data** ([009](backlog/009-wire-screens-to-api.md)).
 
 Security behaviour is implemented rather than decorative: generic login failure
 with a lockout countdown, non-committal forgot-password, reveal-once secrets
 requiring explicit acknowledgment, MCP snippets defaulting to a placeholder key,
 and webhook failure detail that never renders headers.
 
-**Dev is live.** `https://api-dev.agentdisk.io/v1/healthz` and
-`mcp-dev.agentdisk.io` both answer, served by `agentdisk-dev-api` over
-Terraform-managed custom domains. The full loop runs unattended: push to `dev` →
-verify → `terraform apply` → migrations → `wrangler deploy` → smoke test.
+**Dev is live**, on three hostnames: `api-dev.agentdisk.io` (REST),
+`mcp-dev.agentdisk.io`, and `app-dev.agentdisk.io` (the dashboard). The full
+loop runs unattended: push to `dev` → verify → `terraform apply` → migrations →
+`wrangler deploy` → smoke test.
 
-Nine resources exist in the `dev` workspace (D1, R2, KV, jobs queue + DLQ, the
-Worker, two custom domains, and the workspace guard), with state in
+The API answers `/v1/healthz` unauthenticated and `/v1/whoami` behind the full
+authorization chain. `POST /v1/workspaces` is built and deliberately refuses
+every request until a Turnstile secret is configured — it is the only endpoint
+that creates resources without a credential, so it fails closed rather than
+running ungated.
+
+Eleven resources exist in the `dev` workspace (D1, R2, KV, jobs queue + DLQ, two
+Workers, three custom domains, and the workspace guard), with state in
 `agentdisk-tfstate` under `dev/terraform.tfstate` and native R2 locking
 confirmed working. **Prod has never been applied** — the `prod` workspace is
 empty, gated behind a PR into `main` plus the required-reviewer approval.
 
-Three faults were found only by running it, not by planning it: `wrangler deploy`
-refuses a declared queue consumer when the Worker exports no `queue` handler;
-Wrangler silently enables `workers.dev`, publishing a second public hostname that
-bypasses the custom domains; and `cloudflare_d1_database` sends
+Faults found only by running it, not by planning it: `wrangler deploy` refuses a
+declared queue consumer when the Worker exports no `queue` handler; Wrangler
+silently enables `workers.dev`, publishing a second public hostname that
+bypasses the custom domains; `cloudflare_d1_database` sends
 `read_replication: null` on update, so apply succeeds once and fails on every
-run after. All three are fixed and commented where they bite.
+run after; and a Worker owning static assets needs `assets`/`keep_assets` in
+`ignore_changes` or a routine plan proposes deleting the deployed site. All are
+fixed and commented where they bite.
 
-One gap in the plan itself: `docs/design/11-backend-implementation-prompt.md` is
-referenced by docs 12 and 13 as the source of the application build, but **it does
-not exist in this repo**.
+Doc numbering: `docs/design/11-backend-implementation-prompt.md` is referenced by
+docs 12 and 13, and **doc 08 is that prompt under its original number** — no
+document is actually missing. See [the implementation plan](docs/IMPLEMENTATION_PLAN.md).
 
-Next: [008 · Backend](backlog/008-backend.md), which blocks any deploy — hand
-[doc 08](docs/design/08-claude-code-prompt.md) to Claude Code to start. Cheap
-wins alongside it: [007 · Browser-verify](backlog/007-browser-verify-screens.md)
-and [006 · Upstream the Drawer](backlog/006-upstream-drawer.md).
+Two known deviations from the design docs, both deliberate and both requiring a
+doc correction under the precedence rule: doc 07 PART 18.4 assigns `app.` to
+Cloudflare Pages, but the dashboard ships as a Workers static-assets Worker
+([013](backlog/013-deploy-dashboard.md)); and the live landing page still shows
+pre-rename domains (`api.agentdrive.ai`, `docs.agentdrive.dev`) that doc 12
+renamed to `agentdisk.io`.
+
+Next: finish [008 · Backend](backlog/008-backend.md) — the storage core, which
+is what roadmap step 27's file round-trip needs. Tracked in
+[docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md).

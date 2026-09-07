@@ -1,9 +1,24 @@
-name: Deploy (reusable)
+name: Backend (reusable)
 
+# The API Worker (apps/api) -> api-<env>.agentdisk.io, plus its D1 migrations
+# and its Worker secrets.
+#
 # Dev and prod deploy through THIS one workflow, parameterised only by inputs.
 # That is deliberate: the roadmap calls for prod to be "identical in shape" to
 # dev, and the reliable way to guarantee that is to make it literally the same
 # code path, rather than two files that drift apart over time.
+#
+# It reads Terraform, it does not apply it. `terraform output` needs only
+# `init`; it takes no state lock and changes nothing. The apply this file used
+# to run lives in infra.yml now, so an infrastructure failure can no longer
+# stop an API deploy that needed nothing from it - and the three-way lock
+# contention between the API, dashboard and console pipelines is gone.
+#
+# The trade-off: a push touching both infra/terraform and apps/api races, and
+# this job may read outputs from before the apply. Every name it reads is
+# asserted against the environment's variables below, so the dangerous version
+# fails loudly. Re-run this pipeline after infra.yml lands, or use
+# deploy-all-dev.yml, which orders them.
 on:
   workflow_call:
     inputs:
@@ -20,6 +35,10 @@ permissions:
 
 env:
   TERRAFORM_VERSION: "1.16.1"
+  # A warm cache means `init` does not contact the registry at all. Reading
+  # outputs still requires `init`, so the provider download is still on this
+  # path - the cache is what keeps a registry 504 from being a routine failure.
+  TF_PLUGIN_CACHE_DIR: ${{ github.workspace }}/.tf-plugin-cache
 
 jobs:
   # A broken build must never reach real infrastructure - not even dev.
@@ -30,7 +49,7 @@ jobs:
   # push-to-dev-and-auto-deploy loop the roadmap is built around. Gating the
   # deploy instead keeps pushes fast while still refusing to ship a red build.
   verify:
-    name: Verify app
+    name: Verify API
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -52,7 +71,7 @@ jobs:
       - run: npm run build
 
   deploy:
-    name: Deploy ${{ inputs.workspace }}
+    name: Deploy API to ${{ inputs.environment }}
     needs: verify
     runs-on: ubuntu-latest
     # This is what makes the Production required-reviewer gate actually block:
@@ -97,6 +116,15 @@ jobs:
           terraform_version: ${{ env.TERRAFORM_VERSION }}
           terraform_wrapper: false
 
+      - name: Prepare provider cache
+        run: mkdir -p "$TF_PLUGIN_CACHE_DIR"
+
+      - uses: actions/cache@v4
+        with:
+          path: ${{ env.TF_PLUGIN_CACHE_DIR }}
+          key: tf-plugins-${{ runner.os }}-${{ hashFiles('infra/terraform/.terraform.lock.hcl') }}
+          restore-keys: tf-plugins-${{ runner.os }}-
+
       - name: Verify required secrets are present
         run: |
           set -euo pipefail
@@ -132,24 +160,24 @@ jobs:
         working-directory: infra/terraform
         run: terraform workspace select -or-create "$WORKSPACE"
 
-      # Workspace selection is mutable CLI state. Assert it landed where we
-      # think before anything is applied. This is the check that stops a
-      # mis-selected workspace from applying dev intent to prod resources.
+      # Workspace selection is mutable CLI state, and it decides which state
+      # file the outputs below are read from. A stale selection here would hand
+      # this job prod's resource IDs and let it deploy dev's code onto them, so
+      # assert it landed where we think before reading anything.
       - name: Assert workspace
         working-directory: infra/terraform
         run: |
           set -euo pipefail
           actual="$(terraform workspace show)"
           if [ "$actual" != "$WORKSPACE" ]; then
-            echo "::error::Workspace is '$actual' but this job deploys '$WORKSPACE'. Refusing to apply."
+            echo "::error::Workspace is '$actual' but this job deploys '$WORKSPACE'. Refusing to continue."
             exit 1
           fi
           echo "Workspace confirmed: $actual"
 
-      - name: Terraform apply
-        working-directory: infra/terraform
-        run: terraform apply -auto-approve -input=false -lock-timeout=5m
-
+      # No `terraform apply`. This job reads state; infra.yml is the only thing
+      # that writes it. If an output below is missing or stale, the answer is to
+      # run infra.yml, not to apply from here.
       - name: Capture Terraform outputs
         working-directory: infra/terraform
         run: |
@@ -268,7 +296,7 @@ jobs:
           # The Turnstile widget is created unconditionally, so a missing
           # output here means the apply did not do what it claimed.
           if ! have_output turnstile_secret_key; then
-            echo "::error::Terraform output turnstile_secret_key is missing or empty. Did the apply succeed?"
+            echo "::error::Terraform output turnstile_secret_key is missing or empty. Run the Infrastructure pipeline for $ENVIRONMENT_NAME - this job only reads state."
             exit 1
           fi
           push_output turnstile_secret_key TURNSTILE_SECRET_KEY
@@ -348,11 +376,11 @@ jobs:
         run: |
           set -euo pipefail
           if [ "${{ job.status }}" = "success" ]; then
-            echo "### Deploy to $WORKSPACE succeeded" >> "$GITHUB_STEP_SUMMARY"
+            echo "### API deploy to $WORKSPACE succeeded" >> "$GITHUB_STEP_SUMMARY"
             echo "- API: ${API_URL:-unknown}" >> "$GITHUB_STEP_SUMMARY"
             if [ "${R2_SIGNING_CONFIGURED:-unknown}" = "false" ]; then
               echo "- R2 presigning: **not configured** - upload and download URLs will refuse" >> "$GITHUB_STEP_SUMMARY"
             fi
           else
-            echo "### Deploy to $WORKSPACE FAILED (${{ job.status }})" >> "$GITHUB_STEP_SUMMARY"
+            echo "### API deploy to $WORKSPACE FAILED (${{ job.status }})" >> "$GITHUB_STEP_SUMMARY"
           fi

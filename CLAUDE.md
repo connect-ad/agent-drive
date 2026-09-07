@@ -17,9 +17,9 @@ task.
 | `design-system/` | Upstream mirror of the Claude Design project | **Read-only.** Byte-identical to the remote (96/96). Changes go into Claude Design, then re-import — never edit here. |
 | `apps/api/` | The Cloudflare Worker: REST + MCP, one deployable | Both surfaces are built and share one authorization chain. MCP tools call the REST handlers rather than reimplementing them, so the two cannot drift. |
 | `infra/terraform/` | All infrastructure as code | One root config, one module, **one workspace per environment** (`dev`, `prod`). No `environments/` directories — see the workspace note below. |
-| `.github/workflows/` | CI and deployment pipelines | `ci.yml` gates PRs; `deploy-dev.yml`/`deploy-prod.yml` are thin callers of the shared `deploy.yml`, so prod can never drift from dev. `deploy-web-dev.yml` is separate on purpose — the dashboard is assets-only and shares none of the API's Terraform-output, migration or secret steps. |
+| `.github/workflows/` | CI and deployment pipelines | **Three areas, split by what they own: `infra`, `backend`, `frontend`.** Each is one reusable engine plus thin per-environment callers, so prod can never drift from dev. Path filters mean an `apps/web` push moves nothing else. `frontend.yml` is called once per app (dashboard, console). `ci.yml` gates PRs and covers all three apps. `deploy-all-dev.yml` is the ordered manual full deploy. |
 | `apps/admin/` | The internal staff console, at `admin-dev.agentdisk.io` | Its own origin on purpose: 14 PART 27.2 scopes the staff session cookie to it, so a staff and a customer credential cannot reach each other in a browser. Deliberately does not import `design-system/` — looking different from the customer dashboard is how a support engineer knows which one they are in. |
-| `apps/web/` | The dashboard SPA, live at `app-dev.agentdisk.io` | `src/components/` is vendored from `design-system/`; `src/components/index.js` is generated. Hand-written code lives in `src/routes/` and `src/components-local/`. Deployed as a Workers static-assets Worker, not Pages — see [013](backlog/013-deploy-dashboard.md). |
+| `apps/web/` | The dashboard SPA, live at `app-dev.agentdisk.io` | `src/components/` is vendored from `design-system/`; `src/components/index.js` is generated. Hand-written code lives in `src/routes/` and `src/components-local/`. `src/components/AppShell.jsx` is the one vendored file that deliberately diverges from the mirror, for two reasons awaiting the same upstream trip — [015](backlog/015-rename-in-design-system.md) and [016](backlog/016-upstream-workspace-switcher.md). Deployed as a Workers static-assets Worker, not Pages — see [013](backlog/013-deploy-dashboard.md). |
 | `Skill/` | Reusable how-to knowledge, `<N> <Name>.md` | Procedures, commands and their calibration. Not the specification — that is `docs/design/`. |
 | `backlog/` | Outstanding tasks, `NNN-<slug>.md` | Status lives in the file; a finished item stays as a record. |
 | `.design-sync/` | Sync state and hard-won process notes | `config.json` pins the Claude Design project. `NOTES.md` holds gotchas that cost real time — read it before any file transfer. |
@@ -76,6 +76,22 @@ were not touched. See [002](backlog/002-reconcile-brand-drift.md).
   token is therefore full account compromise, not just the resources it manages.
 - **Resource IDs are never typed by hand.** CI injects them into `wrangler.toml`
   from `terraform output -json`; the committed file holds `TF_OUTPUT_*` placeholders.
+- **Only `infra.yml` runs `terraform apply`.** The backend and frontend
+  pipelines `init` and read `terraform output`, which takes no state lock and
+  changes nothing. All three used to apply, because each needed outputs and
+  applying first looked like the safe way to make them current — so every push
+  had three appliers contending for one lock, and a registry 504 fetching the
+  Cloudflare provider could fail a CSS change. Reading never needed the apply.
+  **The cost is a race:** a push touching both `infra/terraform` and an app runs
+  the two pipelines in parallel, so the app may read pre-apply outputs. Every
+  name read is asserted against the environment's variables, so the dangerous
+  version fails loudly; for the benign version, re-run the app pipeline, or use
+  `deploy-all-dev.yml`, which orders them.
+- **Branch protection requires two checks by their display name** — `App (lint,
+  typecheck, test, build)` and `Terraform (fmt, validate)`. Renaming either job's
+  `name:` without updating the rule leaves every PR waiting on a check that will
+  never report. The dashboard and console jobs in `ci.yml` are deliberately not
+  required yet.
 - **A Worker that owns static assets needs `assets` and `keep_assets` in
   `ignore_changes`,** not just the code attributes. Without them a routine plan
   proposes stripping the deployed site's own files.
@@ -199,6 +215,7 @@ provenance), `ApiKeyDisplay` (show-once), `PermissionSelector` (least privilege)
 | 013 | [Deploy the dashboard](backlog/013-deploy-dashboard.md) | Done — `app-dev.agentdisk.io` |
 | 014 | [R2 signing credential](backlog/014-r2-signing-credential.md) | Done — `R2_FILES_*` set on the `dev` environment |
 | 015 | [Rename in the design system](backlog/015-rename-in-design-system.md) | Open — upstream change, then re-import |
+| 016 | [Upstream the workspace switcher](backlog/016-upstream-workspace-switcher.md) | Open — `AppShell.workspaceSlot` and a selection menu |
 
 ---
 
@@ -215,7 +232,7 @@ person can follow.
 
 ```
 apps/api    441 tests across 28 files · typecheck clean · lint clean
-apps/web    6 tests · 111 modules · build clean
+apps/web    22 tests · 112 modules · build clean
 Worker      226 KiB gzipped, against Cloudflare's 1 MB limit
 ```
 

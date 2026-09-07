@@ -20,6 +20,7 @@ import { ApiError, validationError } from "../lib/errors";
 import { newId } from "../lib/ids";
 import type { AuthContext } from "../middleware/auth";
 import type { AgentRow } from "../db/types";
+import { audit } from "../lib/audit";
 
 const NAME = z
   .string()
@@ -109,6 +110,11 @@ export async function createAgent(ctx: AuthContext, request: Request): Promise<R
     throw err;
   }
 
+  audit(ctx, request, "agent.created", {
+    resourceType: "agent",
+    resourceId: row.id,
+    metadata: { name: row.name },
+  });
   return json({ agent: toResource(row) }, 201);
 }
 
@@ -138,6 +144,16 @@ export async function patchAgent(
   }
 
   const updated = await ctx.db.agents.getById(id);
+  audit(ctx, request, "agent.updated", {
+    resourceType: "agent",
+    resourceId: id,
+    // The fields that changed, never the whole row - a diff is what somebody
+    // reading this later actually wants.
+    metadata: {
+      name: body.name ?? null,
+      status: body.status ?? null,
+    },
+  });
   return json({ agent: toResource(updated ?? existing) });
 }
 
@@ -156,5 +172,10 @@ export async function deleteAgent(
   const revoked = await ctx.db.apiKeys.revokeForAgent(id, ctx.now);
   await ctx.db.agents.delete(id);
 
+  audit(ctx, _request, "agent.deleted", {
+    resourceType: "agent",
+    resourceId: id,
+    metadata: { name: existing.name, keysRevoked: revoked },
+  });
   return json({ deleted: true, keysRevoked: revoked });
 }

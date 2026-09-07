@@ -3,6 +3,7 @@ import {
   PageHead, Panel, Select, Input, Button, Icon, Badge, ActivityRow,
   EmptyState, Skeleton, CodeBlock
 } from '../components/index.js';
+import { useResource } from '../lib/useResource.js';
 
 /**
  * 8.20 Activity / Audit Log — MVP-1
@@ -15,28 +16,67 @@ import {
  * States: loading | populated | empty-filtered | empty-none
  */
 
-// Audit events are recorded by nothing yet - the append path is unwired.
-const EVENTS = [];
+const loadActivity = (api, workspaceId) => api.listActivity(workspaceId, 200);
 
-export default function ActivityLog({ state = 'populated' }) {
-  const loading = state === 'loading';
-  const none = state === 'empty-none';
+function relativeTime(iso) {
+  const then = new Date(iso).getTime();
+  if (!Number.isFinite(then)) return '—';
+  const seconds = Math.round((Date.now() - then) / 1000);
+  if (seconds < 60) return 'just now';
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h`;
+  return new Date(then).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+}
+
+/**
+ * The resource an event was about, in the form a person recognises. Falls back
+ * to the id rather than inventing a label - a row that cannot say what it
+ * touched should say so, not guess.
+ */
+function describeResource(event) {
+  const name = event.metadata?.name ?? event.metadata?.path ?? event.metadata?.email;
+  return name ?? event.resource?.id ?? '—';
+}
+
+export default function ActivityLog() {
+  const { status, data, error, reload } = useResource(loadActivity);
+  const loading = status === 'loading';
 
   const [actor, setActor] = useState('all');
   const [action, setAction] = useState('all');
-  const [query, setQuery] = useState(state === 'empty-filtered' ? 'nothing-matches-this' : '');
+  const [query, setQuery] = useState('');
   const [open, setOpen] = useState(null);
 
+  const events = useMemo(
+    () =>
+      (data?.events ?? []).map(e => ({
+        id: e.id,
+        action: e.action,
+        actor: e.actor?.id ?? '—',
+        actorType: e.actor?.type ?? 'user',
+        resource: describeResource(e),
+        time: relativeTime(e.at),
+        status: e.result === 'success' ? 'ok' : e.result,
+        detail: e.result === 'denied' ? 'Rejected before it reached storage' : undefined,
+        ip: e.ip ?? '—',
+        client: e.client ?? '—',
+        req: e.requestId ?? '—'
+      })),
+    [data]
+  );
+
+  const none = status === 'loaded' && events.length === 0;
+
   const rows = useMemo(() => {
-    if (loading || none) return [];
-    return EVENTS.filter(e => {
+    if (loading) return [];
+    return events.filter(e => {
       if (actor !== 'all' && e.actorType !== actor) return false;
       if (action !== 'all' && e.action.split('.')[0] !== action) return false;
       const q = query.trim().toLowerCase();
       if (q && !(e.resource + e.actor + e.action).toLowerCase().includes(q)) return false;
       return true;
     });
-  }, [actor, action, query, loading, none]);
+  }, [events, actor, action, query, loading]);
 
   const filtered = actor !== 'all' || action !== 'all' || query.trim().length > 0;
   const clearFilters = () => { setActor('all'); setAction('all'); setQuery(''); };

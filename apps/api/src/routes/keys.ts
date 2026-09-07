@@ -27,6 +27,7 @@ import { isSubsetScope, SCOPE_OPS, type KeyScope, type ScopeOp } from "../auth/s
 import { normalizePrefix } from "../auth/scopes";
 import type { AuthContext } from "../middleware/auth";
 import type { ApiKeyRow } from "../db/types";
+import { audit } from "../lib/audit";
 
 const createSchema = z.object({
   name: z.string().trim().min(1, "A key needs a name.").max(64),
@@ -151,6 +152,21 @@ export async function createKey(ctx: AuthContext, request: Request): Promise<Res
 
   await ctx.db.apiKeys.insert(row);
 
+  // Minting a credential is the single most consequential thing anybody does
+  // in this product, so it is recorded with the scope it was given - the
+  // prefix identifies which key, and never the secret.
+  audit(ctx, request, "key.created", {
+    resourceType: "api_key",
+    resourceId: row.id,
+    metadata: {
+      name: row.name,
+      prefix: row.key_prefix,
+      ops: requested.ops.join(","),
+      pathPrefix: requested.pathPrefix,
+      agentId: row.agent_id,
+    },
+  });
+
   return json(
     {
       key: toResource(row, ctx.now),
@@ -173,6 +189,13 @@ export async function revokeKey(
   if (existing === null) throw new ApiError("NOT_FOUND", "No such key.");
 
   const revoked = await ctx.db.apiKeys.revoke(id, ctx.now);
+  if (revoked) {
+    audit(ctx, _request, "key.revoked", {
+      resourceType: "api_key",
+      resourceId: id,
+      metadata: { name: existing.name, prefix: existing.key_prefix },
+    });
+  }
   if (!revoked) {
     // Already revoked. Idempotent rather than an error: the caller's intent is
     // satisfied, and failing here would make a retry after a dropped response

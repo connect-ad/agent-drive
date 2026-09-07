@@ -106,6 +106,9 @@ export function createApiClient(getToken) {
     revokeKey: (workspaceId, keyId) =>
       request(`/v1/keys/${keyId}`, { method: 'DELETE', workspaceId }),
 
+    listActivity: (workspaceId, limit = 50) =>
+      request(`/v1/activity?limit=${limit}`, { workspaceId }),
+
     listMembers: workspaceId => request('/v1/members', { workspaceId }),
     inviteMember: (workspaceId, body) =>
       request('/v1/members', { method: 'POST', body, workspaceId }),

@@ -62,6 +62,12 @@ export interface AuthContext {
    */
   members: WorkspaceMembers;
   /**
+   * Somewhere to put work that must outlive the response — the audit write,
+   * mainly. Optional because the middleware is also driven directly from tests,
+   * where there is no ExecutionContext to hand.
+   */
+  waitUntil?: (promise: Promise<unknown>) => void;
+  /**
    * The few actions that are about the signed-in person rather than the
    * workspace. Same discipline as `db` and `storage`: the user ID is bound
    * here, not passed as an argument, so a handler has no way to name somebody
@@ -278,6 +284,7 @@ export async function withAuth(
     db: createWorkspaceContext(deps.db, identity.workspaceId),
     storage: new WorkspaceScopedStorage(deps.files, deps.signing, identity.workspaceId),
     members: new WorkspaceMembers(deps.db, identity.workspaceId),
+    waitUntil: deps.waitUntil,
     self:
       identity.kind === "firebase_user"
         ? {

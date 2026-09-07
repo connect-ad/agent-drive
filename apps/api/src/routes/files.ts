@@ -30,6 +30,7 @@ import { MAX_INLINE_BYTES } from "../storage/workspace-scoped";
 import { DOWNLOAD_URL_TTL_SECONDS, UPLOAD_URL_TTL_SECONDS, redactPresigned } from "../storage/presign";
 import type { AuthContext } from "../middleware/auth";
 import type { FileRow } from "../db/types";
+import { audit } from "../lib/audit";
 
 /** PART 13: "default 50, max 200". */
 const DEFAULT_PAGE_SIZE = 50;
@@ -317,6 +318,12 @@ export async function createFile(ctx: AuthContext, request: Request): Promise<Re
   }
   await ctx.db.counters.apply({ bytes: inline.byteLength, files: 1 }, ctx.now);
 
+  audit(ctx, request, "file.created", {
+    resourceType: "file",
+    resourceId: fileId,
+    metadata: { path: row.path, sizeBytes: inline.byteLength, mode: "inline" },
+  });
+
   return json({ file: toFileResource({ ...row, status: "active" }, tags) }, 201);
 }
 
@@ -366,6 +373,11 @@ export async function completeFile(ctx: AuthContext, request: Request, fileId: s
 
   const checksum = body.checksumSha256 ?? row.checksum_sha256;
   const activated = await ctx.db.files.markActive(fileId, head.size, checksum, ctx.now);
+  audit(ctx, request, "file.created", {
+    resourceType: "file",
+    resourceId: fileId,
+    metadata: { path: row.path, sizeBytes: head.size, mode: "presigned" },
+  });
   if (!activated) {
     // Lost a race with a concurrent complete. The other one won and did the
     // bookkeeping; double-counting the quota here would be worse than a 409.
@@ -557,6 +569,12 @@ export async function deleteFile(ctx: AuthContext, _request: Request, fileId: st
   if (row.status === "active") {
     await ctx.db.counters.apply({ bytes: -row.size_bytes, files: -1 }, ctx.now);
   }
+
+  audit(ctx, _request, "file.deleted", {
+    resourceType: "file",
+    resourceId: fileId,
+    metadata: { path: row.path, sizeBytes: row.size_bytes },
+  });
 
   return json({
     id: fileId,

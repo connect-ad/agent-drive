@@ -17,6 +17,7 @@ import { ApiError, validationError } from "../lib/errors";
 import { assertCanInvite, isMemberRole, MEMBER_ROLES } from "../auth/roles";
 import type { MemberRecord } from "../db/members";
 import type { AuthContext } from "../middleware/auth";
+import { audit } from "../lib/audit";
 
 /** The owner's own row is not grantable — it comes with paying for the account. */
 const INVITABLE_ROLES = ["admin", "reader"] as const;
@@ -118,6 +119,11 @@ export async function inviteMember(ctx: AuthContext, request: Request): Promise<
   const added = await ctx.members.add(user.id, body.role, ctx.now);
   if (added === null) throw new ApiError("NOT_FOUND", "No such workspace.");
 
+  audit(ctx, request, "member.added", {
+    resourceType: "membership",
+    resourceId: added.membershipId,
+    metadata: { email: added.email, role: added.role },
+  });
   return json({ member: toResource(added, caller.userId) }, 201);
 }
 
@@ -143,6 +149,11 @@ export async function changeMemberRole(
 
   await ctx.members.setRole(membershipId, body.role);
   const updated = await ctx.members.find(membershipId);
+  audit(ctx, request, "member.role_changed", {
+    resourceType: "membership",
+    resourceId: membershipId,
+    metadata: { email: member.email, from: member.role, to: body.role },
+  });
   return json({ member: toResource(updated ?? member, caller.userId) });
 }
 
@@ -183,6 +194,11 @@ export async function removeWorkspaceMember(
 
   await ctx.members.remove(membershipId);
 
+  audit(ctx, request, "member.removed", {
+    resourceType: "membership",
+    resourceId: membershipId,
+    metadata: { email: member.email, role: member.role, keysRevoked },
+  });
   return json({ removed: true, keysRevoked });
 }
 

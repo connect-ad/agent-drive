@@ -17,6 +17,7 @@ import { createWorkspace } from "./routes/create-workspace";
 import { createWorkspaceForUser, listWorkspaces } from "./routes/workspaces";
 import { createAgent, deleteAgent, getAgent, listAgents, patchAgent } from "./routes/agents";
 import { createKey, listKeys, revokeKey } from "./routes/keys";
+import { listActivity } from "./routes/activity";
 import { createPortalSession, getBilling } from "./routes/billing";
 import { handleStripeWebhook } from "./routes/stripe-webhook";
 import {
@@ -276,6 +277,13 @@ export default {
           webhookSecret: env.STRIPE_WEBHOOK_SECRET,
           now: Date.now(),
         });
+      }
+
+      // The audit trail. Read-only by design - a log a client can post to is
+      // not a log. `list` because reading the workspace's history is the same
+      // capability as enumerating its contents.
+      if (route === "GET /v1/activity") {
+        return await authed({ op: "list" }, listActivity);
       }
 
       if (segments[0] === "v1" && segments[1] === "billing") {

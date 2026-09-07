@@ -20,7 +20,7 @@ import McpConnection from './routes/McpConnection.jsx';
 import Webhooks from './routes/Webhooks.jsx';
 import ActivityLog from './routes/ActivityLog.jsx';
 import RequireAuth, { RequireWorkspace } from './lib/RequireAuth.jsx';
-import NewWorkspace from './components-local/NewWorkspace.jsx';
+import WorkspaceSwitcher from './components-local/WorkspaceSwitcher.jsx';
 import { useAuth } from './lib/auth.jsx';
 import { useWorkspace } from './lib/workspace.jsx';
 
@@ -85,7 +85,7 @@ function WorkspaceLayout() {
   const { ws } = useParams();
   const { pathname } = useLocation();
   const { user, signOut } = useAuth();
-  const { workspaces, workspaceId, select, role } = useWorkspace();
+  const { workspaces, workspaceId, select, create } = useWorkspace();
 
   const handleSignOut = async () => {
     await signOut();
@@ -103,10 +103,7 @@ function WorkspaceLayout() {
   }, [ws, workspaceId, workspaces, select]);
 
   const open = workspaces.find(w => w.id === ws) ?? null;
-  const WORKSPACE = {
-    name: open?.name ?? 'Workspace',
-    meta: role ? `${role[0].toUpperCase()}${role.slice(1)}` : ''
-  };
+  const workspaceName = open?.name ?? 'Workspace';
   const USER = {
     name: user?.displayName ?? user?.email ?? 'Signed in',
     email: user?.email ?? ''
@@ -116,7 +113,17 @@ function WorkspaceLayout() {
     <AppShell
       nav={NAV}
       active={active}
-      workspace={WORKSPACE}
+      workspaceSlot={
+        <WorkspaceSwitcher
+          workspaces={workspaces}
+          currentId={ws}
+          onSelect={id => navigate(`/w/${id}`)}
+          onCreate={async name => {
+            const workspace = await create(name);
+            navigate(`/w/${workspace.id}`);
+          }}
+        />
+      }
       user={USER}
       onNavigate={id => {
         const item = NAV.flatMap(g => g.items).find(i => i.id === id);
@@ -127,7 +134,7 @@ function WorkspaceLayout() {
       topbar={
         <Breadcrumb
           items={[
-            { label: WORKSPACE.name, href: wsRoot },
+            { label: workspaceName, href: wsRoot },
             { label: current ? current.label : 'Dashboard' }
           ]}
         />
@@ -135,27 +142,12 @@ function WorkspaceLayout() {
       topbarActions={
         <>
           {/*
-            A workspace switcher rather than a status badge. The badge said "All
-            systems normal" without checking anything, which is a claim the UI
-            was in no position to make.
+            No workspace controls here. Switching and creating both used to live
+            in this row, beside a third copy of the workspace's name in the
+            sidebar - and the switcher hid itself until you already had two, so
+            the only route to a second workspace sat next to a control you could
+            not see. All three are now the one switcher in the sidebar.
           */}
-          {workspaces.length > 1 ? (
-            <select
-              aria-label="Switch workspace"
-              value={ws}
-              onChange={e => navigate(`/w/${e.target.value}`)}
-              style={{
-                font: 'var(--f-body-sm)', color: 'var(--ink)', background: 'var(--surface)',
-                border: '1px solid var(--line)', borderRadius: 'var(--r-2)',
-                padding: 'var(--s-2) var(--s-3)'
-              }}
-            >
-              {workspaces.map(w => (
-                <option key={w.id} value={w.id}>{w.name}</option>
-              ))}
-            </select>
-          ) : null}
-          <NewWorkspace />
           <Button size="sm" variant="secondary" as={Link} to="/docs" icon={<Icon name="book" size={13} />}>
             Docs
           </Button>

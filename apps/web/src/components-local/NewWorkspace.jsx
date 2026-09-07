@@ -1,37 +1,43 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { Button, Icon, Input, Modal, Alert } from '../components/index.js';
-import { useWorkspace } from '../lib/workspace.jsx';
 
 /**
- * Create a workspace, and go to it.
+ * The create-a-workspace dialog.
  *
- * Lives in the topbar beside the switcher rather than buried in settings,
- * because the moment somebody wants a second workspace is the moment they are
- * looking at the first one and reaching for the switcher.
+ * Controlled rather than self-opening: it used to own its own trigger button in
+ * the topbar, which was one of three places the product offered to talk about
+ * workspaces. All three are now the one switcher in the sidebar, so the thing
+ * that opens this lives there — see WorkspaceSwitcher.
  *
- * Navigating into the new workspace on success is the whole point — creating a
- * container and then leaving you in the old one is the kind of small
- * disorientation that makes people click the button twice.
+ * `onCreate` does the creating and whatever should follow it (the caller
+ * navigates into the new workspace, because creating a container and then
+ * leaving you in the old one is the kind of small disorientation that makes
+ * people click the button twice). This component's only jobs are the name, the
+ * busy state, and putting the failure where the person who caused it is
+ * looking.
  */
-export default function NewWorkspace() {
-  const navigate = useNavigate();
-  const { create } = useWorkspace();
-
-  const [open, setOpen] = useState(false);
+export default function NewWorkspace({ open, onClose, onCreate }) {
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
+
+  const close = () => {
+    setName('');
+    setError(null);
+    onClose();
+  };
 
   const submit = async () => {
     if (!name.trim()) { setError('Give the workspace a name.'); return; }
     setBusy(true); setError(null);
     try {
-      const workspace = await create(name.trim());
-      setOpen(false);
+      await onCreate(name.trim());
       setName('');
-      navigate(`/w/${workspace.id}`);
+      onClose();
     } catch (err) {
+      // Stay open. The name is still in the field, so a failure that the person
+      // can act on — "only an account owner can create a workspace" — does not
+      // also cost them their typing.
       setError(`${err.message}${err.requestId ? ` (request ${err.requestId})` : ''}`);
     } finally {
       setBusy(false);
@@ -39,40 +45,31 @@ export default function NewWorkspace() {
   };
 
   return (
-    <>
-      <Button
-        size="sm"
-        variant="secondary"
-        icon={<Icon name="plus" size={13} />}
-        onClick={() => { setError(null); setOpen(true); }}
-      >
-        New workspace
-      </Button>
-
-      <Modal
-        open={open}
-        title="Create a workspace"
-        tone="accent"
-        mark={<Icon name="folder" size={16} />}
-        onClose={() => setOpen(false)}
-        footer={
-          <>
-            <Button variant="secondary" onClick={() => setOpen(false)}>Cancel</Button>
-            <Button onClick={submit} loading={busy}>Create workspace</Button>
-          </>
-        }
-      >
-        {error ? <div role="alert"><Alert tone="danger" title={error} /></div> : null}
-        <Input
-          label="Name"
-          required
-          placeholder="Client A"
-          hint="Files, agents and keys are kept entirely separate between workspaces. Billing is not — every workspace you own is on the same account."
-          value={name}
-          onChange={e => setName(e.target.value)}
-          onKeyDown={e => { if (e.key === 'Enter') submit(); }}
-        />
-      </Modal>
-    </>
+    <Modal
+      open={open}
+      title="Create a workspace"
+      tone="accent"
+      mark={<Icon name="folder" size={16} />}
+      onClose={close}
+      footer={
+        <>
+          <Button variant="secondary" onClick={close}>Cancel</Button>
+          <Button onClick={submit} loading={busy}>Create workspace</Button>
+        </>
+      }
+    >
+      {/* <Alert tone="danger"> is role="alert" already; wrapping it in another
+          made the failure announce twice. */}
+      {error ? <Alert tone="danger" title={error} /> : null}
+      <Input
+        label="Name"
+        required
+        placeholder="Client A"
+        hint="Files, agents and keys are kept entirely separate between workspaces. Billing is not — every workspace you own is on the same account."
+        value={name}
+        onChange={e => setName(e.target.value)}
+        onKeyDown={e => { if (e.key === 'Enter') submit(); }}
+      />
+    </Modal>
   );
 }

@@ -3,7 +3,7 @@ import { Icon } from '../Icon/Icon.jsx';
 import { IconButton } from '../Button/IconButton.jsx';
 
 export function AppShell({
-  nav = [], active, workspace, user, topbar, topbarActions, children, flush = false, onNavigate, className = '', ...rest
+  nav = [], active, workspace, workspaceSlot, user, topbar, topbarActions, children, flush = false, onNavigate, className = '', ...rest
 }) {
   const [open, setOpen] = useState(false);
   return (
@@ -13,7 +13,11 @@ export function AppShell({
           <span className="shell__logo" aria-hidden="true">A</span>
           <span className="shell__wordmark">AgentDisk</span>
         </div>
-        {workspace ? (
+        {/* The card is a display of the current workspace and nothing more - the
+            chevron is decoration. `workspaceSlot` lets a host put a real control
+            in its place (AgentDisk puts the workspace switcher there) without
+            this component having to own menu state. */}
+        {workspaceSlot ? <div className="shell__ws">{workspaceSlot}</div> : workspace ? (
           <div className="shell__ws">
             <button type="button" className="shell__wsbtn">
               <span className="shell__wsmark" aria-hidden="true">{(workspace.name || 'W').slice(0, 1).toUpperCase()}</span>

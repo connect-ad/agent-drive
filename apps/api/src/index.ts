@@ -14,6 +14,10 @@ import { withAuth, type Requirement, type Handler } from "./middleware/auth";
 import { whoami } from "./routes/whoami";
 import { logoutAll } from "./routes/logout-all";
 import { createWorkspace } from "./routes/create-workspace";
+import { createWorkspaceForUser, listWorkspaces } from "./routes/workspaces";
+import { resolveVerifiedUser } from "./auth/authenticate";
+import { extractBearerToken, isApiKeyToken } from "./lib/keys";
+import { unauthorized } from "./lib/errors";
 import {
   completeFile,
   createFile,
@@ -184,15 +188,49 @@ export default {
           handler
         );
 
-      // Public, and the only route that creates anything without a credential.
-      // Its gates - a per-IP rate limit and Turnstile - live inside the handler.
-      if (route === "POST /v1/workspaces") {
-        return await createWorkspace(request, {
+      // One path, two callers, told apart by whether a credential was offered.
+      //
+      // Unauthenticated it is the Turnstile-gated sandbox: an agent
+      // provisioning itself a trial workspace, which is the product's own
+      // agent-first onboarding (05 PART 4.3) and is why the route accepts no
+      // credential at all. Its gates - a per-IP rate limit and Turnstile - live
+      // inside that handler.
+      //
+      // Authenticated it is a person adding a workspace to the billing account
+      // they already own. Keeping both on one path rather than inventing a
+      // second means a client that later gains a credential does not have to
+      // learn a different URL for the same noun.
+      if (url.pathname === "/v1/workspaces" && (request.method === "POST" || request.method === "GET")) {
+        const token = extractBearerToken(request);
+
+        if (token === null || isApiKeyToken(token)) {
+          if (request.method !== "POST") throw new ApiError("NOT_FOUND", "No such route.");
+          // An API key is deliberately not accepted here either: an agent key
+          // is scoped to one workspace and must not be able to mint siblings.
+          if (token !== null) throw unauthorized("api keys cannot create workspaces");
+          return await createWorkspace(request, {
+            db: env.DB,
+            kv: env.CACHE,
+            turnstileSecret: env.TURNSTILE_SECRET_KEY,
+            allowedHostnames: env.TURNSTILE_ALLOWED_HOSTNAMES,
+          });
+        }
+
+        const firebase = firebaseConfig(env);
+        if (firebase === null) {
+          throw unauthorized("no FIREBASE_PROJECT_ID configured; user tokens cannot be verified");
+        }
+        const now = Date.now();
+        const { user } = await resolveVerifiedUser(token, {
           db: env.DB,
-          kv: env.CACHE,
-          turnstileSecret: env.TURNSTILE_SECRET_KEY,
-          allowedHostnames: env.TURNSTILE_ALLOWED_HOSTNAMES,
+          cache: firebase.cache,
+          projectId: firebase.projectId,
+          now,
         });
+
+        return request.method === "GET"
+          ? await listWorkspaces(env.DB, user)
+          : await createWorkspaceForUser(request, env.DB, user, now);
       }
 
       // 30.4. A user ending their own sessions; refused for an API key, which

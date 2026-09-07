@@ -26,7 +26,7 @@ import {
   type UserRow,
 } from "../db/user-lookup";
 import { parseScopes, ScopeParseError } from "./scopes";
-import { verifyFirebaseToken, type JwksCache } from "./firebase";
+import { verifyFirebaseToken, type FirebaseClaims, type JwksCache } from "./firebase";
 import { isMemberRole, scopeForRole } from "./roles";
 import type { ApiKeyIdentity, FirebaseUserIdentity } from "./identity";
 
@@ -152,11 +152,26 @@ export async function assertAgentEnabled(
  * safe for humans: `workspaceId` still ends up on the identity, and a handler
  * still cannot reach past it.
  */
-export async function authenticateFirebaseUser(
+export interface FirebaseDeps {
+  db: D1Database;
+  cache: JwksCache;
+  projectId: string;
+  now: number;
+}
+
+/**
+ * Verify a token and resolve it to a user, with no workspace involved.
+ *
+ * Split out because two routes genuinely have no workspace to be scoped to:
+ * creating the caller's first (or next) workspace, and listing the ones they
+ * can reach. Everything else goes through `authenticateFirebaseUser`, which
+ * adds the membership check - so this is deliberately not exported as a
+ * shortcut past that, and the two callers below are the whole set.
+ */
+export async function resolveVerifiedUser(
   token: string,
-  deps: { db: D1Database; cache: JwksCache; projectId: string; now: number },
-  workspaceId: string
-): Promise<FirebaseUserIdentity> {
+  deps: FirebaseDeps
+): Promise<{ user: UserRow; claims: FirebaseClaims }> {
   const claims = await verifyFirebaseToken(token, {
     cache: deps.cache,
     projectId: deps.projectId,
@@ -171,6 +186,16 @@ export async function authenticateFirebaseUser(
   if (claims.issuedAtMs <= user.session_revoked_after) {
     throw unauthorized(`token predates session_revoked_after for user ${user.id}`);
   }
+
+  return { user, claims };
+}
+
+export async function authenticateFirebaseUser(
+  token: string,
+  deps: FirebaseDeps,
+  workspaceId: string
+): Promise<FirebaseUserIdentity> {
+  const { user, claims } = await resolveVerifiedUser(token, deps);
 
   const membership = await findMembershipForWorkspace(deps.db, user.id, workspaceId);
   if (membership === null) {

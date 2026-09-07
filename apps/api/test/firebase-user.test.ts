@@ -25,8 +25,12 @@ let privateKey: CryptoKey;
 let publicJwk: TestJwk;
 
 const ORG_ID = "org_TESTORG";
-const MEMBER_USER = "usr_MEMBERPERSON";
+const MEMBER_USER = "usr_OWNERPERSON";
 const MEMBER_UID = "firebase-uid-member";
+const INVITED_ADMIN = "usr_INVITEDADMIN";
+const INVITED_ADMIN_UID = "firebase-uid-invited-admin";
+const READER_USER = "usr_READERPERSON";
+const READER_UID = "firebase-uid-reader";
 
 function b64url(bytes: Uint8Array): string {
   let binary = "";
@@ -154,28 +158,59 @@ beforeAll(async () => {
   };
 });
 
-beforeEach(async () => {
-  await seedTwoWorkspaces();
-  // Every test starts from "this Firebase account has never been seen", except
-  // where it seeds its own rows.
-  await env.DB.prepare(`DELETE FROM memberships WHERE user_id != 'usr_TESTUSER'`).run();
-  await env.DB.prepare(`DELETE FROM users WHERE id != 'usr_TESTUSER'`).run();
-  await env.DB.prepare(`DELETE FROM organizations WHERE id != ?`).bind(ORG_ID).run();
-  await env.DB.prepare(`UPDATE users SET session_revoked_after = 0`).run();
-
+/** Seed a user with a Firebase account attached. */
+async function seedUser(id: string, email: string, uid: string): Promise<void> {
   await env.DB.prepare(
     `INSERT INTO users (id, email, firebase_uid, is_provisional, session_revoked_after,
                         created_at, updated_at)
      VALUES (?, ?, ?, 0, 0, ?, ?)`
   )
-    .bind(MEMBER_USER, "member@example.com", MEMBER_UID, NOW, NOW)
+    .bind(id, email, uid, NOW, NOW)
     .run();
+}
 
+/** `workspaceId` null grants the whole billing account; a value grants one workspace. */
+async function seedMembership(
+  id: string,
+  userId: string,
+  role: string,
+  workspaceId: string | null
+): Promise<void> {
   await env.DB.prepare(
-    `INSERT INTO memberships (id, org_id, user_id, role, created_at) VALUES (?, ?, ?, ?, ?)`
+    `INSERT INTO memberships (id, org_id, user_id, workspace_id, role, created_at)
+     VALUES (?, ?, ?, ?, ?, ?)`
   )
-    .bind("mem_TESTMEMBER", ORG_ID, MEMBER_USER, "admin", NOW)
+    .bind(id, ORG_ID, userId, workspaceId, role, NOW)
     .run();
+}
+
+beforeEach(async () => {
+  await seedTwoWorkspaces();
+
+  // Order matters: memberships point at users, workspaces and orgs; workspaces
+  // point at orgs. Deleting orgs first trips the foreign keys D1 actually
+  // enforces. Anything provisioned by a previous test is swept, the two seeded
+  // workspaces stay.
+  await env.DB.prepare(`DELETE FROM memberships WHERE user_id != 'usr_TESTUSER'`).run();
+  await env.DB.prepare(`DELETE FROM workspaces WHERE id NOT IN (?, ?)`)
+    .bind(WORKSPACE_A, WORKSPACE_B)
+    .run();
+  await env.DB.prepare(`DELETE FROM organizations WHERE id != ?`).bind(ORG_ID).run();
+  await env.DB.prepare(`DELETE FROM users WHERE id != 'usr_TESTUSER'`).run();
+  await env.DB.prepare(`UPDATE users SET session_revoked_after = 0`).run();
+
+  // The owner of the billing account: one org-wide row, reaching every
+  // workspace under it.
+  await seedUser(MEMBER_USER, "member@example.com", MEMBER_UID);
+  await seedMembership("mem_OWNER", MEMBER_USER, "owner", null);
+
+  // Invited to workspace A only, as admin.
+  await seedUser(INVITED_ADMIN, "admin@example.com", INVITED_ADMIN_UID);
+  await seedMembership("mem_ADMIN_A", INVITED_ADMIN, "admin", WORKSPACE_A);
+
+  // Invited to workspace A only, read-only.
+  await seedUser(READER_USER, "reader@example.com", READER_UID);
+  await seedMembership("mem_READER_A", READER_USER, "reader", WORKSPACE_A);
 });
 
 describe("a signed-in human through the chain", () => {
@@ -272,11 +307,7 @@ describe("first sight of a Firebase account", () => {
     )
       .bind("usr_INVITED", "invited@example.com", NOW, NOW)
       .run();
-    await env.DB.prepare(
-      `INSERT INTO memberships (id, org_id, user_id, role, created_at) VALUES (?, ?, ?, ?, ?)`
-    )
-      .bind("mem_INVITED", ORG_ID, "usr_INVITED", "member", NOW)
-      .run();
+    await seedMembership("mem_INVITED", "usr_INVITED", "reader", WORKSPACE_A);
 
     const res = await run(
       await mint({ uid: "firebase-uid-invited", email: "invited@example.com" })
@@ -306,11 +337,7 @@ describe("first sight of a Firebase account", () => {
     )
       .bind("usr_TARGET", "target@example.com", NOW, NOW)
       .run();
-    await env.DB.prepare(
-      `INSERT INTO memberships (id, org_id, user_id, role, created_at) VALUES (?, ?, ?, ?, ?)`
-    )
-      .bind("mem_TARGET", ORG_ID, "usr_TARGET", "owner", NOW)
-      .run();
+    await seedMembership("mem_TARGET", "usr_TARGET", "owner", null);
 
     const res = await run(
       await mint({
@@ -384,18 +411,8 @@ describe("log out everywhere", () => {
   });
 
   it("only revokes the user who asked", async () => {
-    await env.DB.prepare(
-      `INSERT INTO users (id, email, firebase_uid, is_provisional, session_revoked_after,
-                          created_at, updated_at)
-       VALUES (?, ?, ?, 0, 0, ?, ?)`
-    )
-      .bind("usr_OTHERPERSON", "other@example.com", "firebase-uid-other", NOW, NOW)
-      .run();
-    await env.DB.prepare(
-      `INSERT INTO memberships (id, org_id, user_id, role, created_at) VALUES (?, ?, ?, ?, ?)`
-    )
-      .bind("mem_OTHER", ORG_ID, "usr_OTHERPERSON", "member", NOW)
-      .run();
+    await seedUser("usr_OTHERPERSON", "other@example.com", "firebase-uid-other");
+    await seedMembership("mem_OTHER", "usr_OTHERPERSON", "admin", WORKSPACE_A);
 
     await env.DB.prepare(`UPDATE users SET session_revoked_after = ? WHERE id = ?`)
       .bind(NOW + 1000, MEMBER_USER)
@@ -405,5 +422,102 @@ describe("log out everywhere", () => {
     expect(
       (await run(await mint({ uid: "firebase-uid-other", email: "other@example.com" }))).status
     ).toBe(200);
+  });
+});
+
+describe("what an invitation actually grants", () => {
+  const asAdmin = (workspaceId: string) =>
+    mint({ uid: INVITED_ADMIN_UID, email: "admin@example.com" }).then(t => run(t, workspaceId));
+  const asReader = (workspaceId: string) =>
+    mint({ uid: READER_UID, email: "reader@example.com" }).then(t => run(t, workspaceId));
+
+  it("reaches the workspace it names, and no other", async () => {
+    // The point of per-workspace membership: being invited into one client's
+    // workspace must not hand over the workspace next to it on the same bill.
+    expect((await asAdmin(WORKSPACE_A)).status).toBe(200);
+    expect((await asAdmin(WORKSPACE_B)).status).toBe(403);
+  });
+
+  it("gives the owner every workspace under their billing account", async () => {
+    expect((await run(await mint(), WORKSPACE_A)).status).toBe(200);
+    expect((await run(await mint(), WORKSPACE_B)).status).toBe(200);
+  });
+
+  it("gives a reader read and list, and nothing that writes", async () => {
+    const body = (await (await asReader(WORKSPACE_A)).json()) as { ops: string[] };
+    expect(body.ops).toEqual(["read", "list"]);
+    expect(body.ops).not.toContain("write");
+    expect(body.ops).not.toContain("delete");
+    // keys:create matters most of all - a read-only person who can mint a key
+    // could mint one with write scope and let it do what they cannot.
+    expect(body.ops).not.toContain("keys:create");
+  });
+
+  it("stops a reader at the authorization step, not just in the UI", async () => {
+    const token = await mint({ uid: READER_UID, email: "reader@example.com" });
+    const res = await withAuth(
+      request(token, WORKSPACE_A),
+      deps(),
+      { op: "write" },
+      echo
+    ).catch(thrown => toErrorResponse(thrown, "req_TEST"));
+    expect(res.status).toBe(403);
+  });
+
+  it("lets an owner keep owner rights in their own workspace despite a lesser row", async () => {
+    // Someone can hold both an org-wide owner row and a workspace-scoped one.
+    // Being demoted inside something you own and pay for would be surprising in
+    // exactly the wrong direction.
+    await seedMembership("mem_SELFREADER", MEMBER_USER, "reader", WORKSPACE_A);
+    const body = (await (await run(await mint(), WORKSPACE_A)).json()) as { ops: string[] };
+    expect(body.ops).toContain("write");
+  });
+});
+
+describe("the workspace a signup lands in", () => {
+  it("creates one, so there is somewhere to put a file immediately", async () => {
+    const token = await mint({ uid: "firebase-uid-lands", email: "lands@example.com" });
+    await run(token, WORKSPACE_A); // provisions on the way past
+
+    const user = await env.DB.prepare(`SELECT id FROM users WHERE firebase_uid = ?`)
+      .bind("firebase-uid-lands")
+      .first<{ id: string }>();
+
+    const workspaces = await env.DB.prepare(
+      `SELECT w.id, w.name, m.role, m.workspace_id
+         FROM workspaces w
+         JOIN memberships m ON m.org_id = w.org_id
+        WHERE m.user_id = ?`
+    )
+      .bind(user?.id)
+      .all<{ id: string; name: string; role: string; workspace_id: string | null }>();
+
+    expect(workspaces.results).toHaveLength(1);
+    expect(workspaces.results[0]?.name).toBe("My Workspace");
+    expect(workspaces.results[0]?.role).toBe("owner");
+    // Org-wide, so workspaces created later are covered without another row.
+    expect(workspaces.results[0]?.workspace_id).toBeNull();
+  });
+
+  it("lets them straight into it", async () => {
+    const token = await mint({ uid: "firebase-uid-straight", email: "straight@example.com" });
+    await run(token, WORKSPACE_A);
+
+    const user = await env.DB.prepare(`SELECT id FROM users WHERE firebase_uid = ?`)
+      .bind("firebase-uid-straight")
+      .first<{ id: string }>();
+    const own = await env.DB.prepare(
+      `SELECT w.id FROM workspaces w
+         JOIN organizations o ON o.id = w.org_id
+        WHERE o.owner_user_id = ?`
+    )
+      .bind(user?.id)
+      .first<{ id: string }>();
+
+    const res = await run(token, own?.id ?? "missing");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { workspaceId: string; ops: string[] };
+    expect(body.workspaceId).toBe(own?.id);
+    expect(body.ops).toContain("write");
   });
 });

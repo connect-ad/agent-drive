@@ -8,7 +8,20 @@
  */
 
 import { newId } from "../lib/ids";
+
 import type { FirebaseClaims } from "../auth/firebase";
+
+/**
+ * Renameable, and named so it reads as a starting point rather than a label
+ * somebody chose. The alternative - deriving it from the person's name - reads
+ * oddly the moment they invite a colleague into "Karim's Workspace".
+ */
+const DEFAULT_WORKSPACE_NAME = "My Workspace";
+
+/** Usage counters reset monthly; the first period starts now. */
+function periodResetAt(now: number): number {
+  return now + 30 * 24 * 60 * 60 * 1000;
+}
 
 export interface UserRow {
   id: string;
@@ -66,19 +79,6 @@ export async function linkFirebaseUidToEmail(
 }
 
 /**
- * First sight of a Firebase account: create the user, and the organization and
- * membership that make them an owner of something.
- *
- * One batch, so a half-provisioned identity cannot exist - the same reasoning
- * as the sandbox bootstrap. A user row without a membership would authenticate
- * successfully and then be unable to reach any workspace, which is a worse
- * failure than not authenticating at all.
- *
- * No workspace is created here. A workspace is a deliberate act with a name,
- * and inventing one called "My Workspace" to fill a hole is how products end up
- * with a million abandoned untitled containers.
- */
-/**
  * The address to store, which is not always the one on the token.
  *
  * `users.email` is NOT NULL UNIQUE, so two things have to be true before a
@@ -105,6 +105,20 @@ async function usableEmail(db: D1Database, claims: FirebaseClaims): Promise<stri
   return taken === null ? claims.email : placeholder;
 }
 
+/**
+ * First sight of a Firebase account: create the user, and the organization and
+ * membership that make them an owner of something.
+ *
+ * One batch, so a half-provisioned identity cannot exist - the same reasoning
+ * as the sandbox bootstrap. A user row without a membership would authenticate
+ * successfully and then be unable to reach anything at all, which is a worse
+ * failure than not authenticating in the first place.
+ *
+ * A default workspace is created too. Signing up and landing on an empty screen
+ * that asks you to create a container before you can do the thing you came for
+ * is a worse first minute than one named workspace you can rename later - and
+ * "upload a file" has to work immediately for the product to make its point.
+ */
 export async function provisionUser(
   db: D1Database,
   claims: FirebaseClaims,
@@ -113,6 +127,7 @@ export async function provisionUser(
   const userId = newId("user", now);
   const orgId = newId("organization", now);
   const membershipId = newId("membership", now);
+  const workspaceId = newId("workspace", now);
 
   const email = await usableEmail(db, claims);
   const orgName = claims.displayName ?? email.split("@")[0] ?? "Personal";
@@ -134,12 +149,23 @@ export async function provisionUser(
       )
       .bind(orgId, orgName, userId, now, now),
 
+    // workspace_id NULL: owning the billing account means owning every
+    // workspace under it, now and later, without a row per workspace that
+    // something has to remember to create.
     db
       .prepare(
-        `INSERT INTO memberships (id, org_id, user_id, role, created_at)
-         VALUES (?, ?, ?, 'owner', ?)`
+        `INSERT INTO memberships (id, org_id, user_id, workspace_id, role, created_at)
+         VALUES (?, ?, ?, NULL, 'owner', ?)`
       )
       .bind(membershipId, orgId, userId, now),
+
+    db
+      .prepare(
+        `INSERT INTO workspaces
+           (id, org_id, name, status, period_reset_at, claimed_at, created_at, updated_at)
+         VALUES (?, ?, ?, 'active', ?, ?, ?, ?)`
+      )
+      .bind(workspaceId, orgId, DEFAULT_WORKSPACE_NAME, periodResetAt(now), now, now, now),
   ]);
 
   return {
@@ -155,9 +181,16 @@ export async function provisionUser(
 /**
  * Whether this user may act in this workspace, and as what.
  *
- * Membership is held against the *organization*, so this joins through the
- * workspace's `org_id` rather than looking for a workspace-level row. There is
- * no such thing as being a member of one workspace but not its sibling.
+ * Two ways to hold access, and the query has to consider both:
+ *   - an org-wide row (`workspace_id IS NULL`), which is what the owner of the
+ *     billing account holds, covering every workspace under it;
+ *   - a row naming this one workspace, which is what an invited admin or
+ *     reader holds.
+ *
+ * Ordered so the org-wide row wins when somebody has both. That can happen if
+ * an owner is also explicitly invited to one of their own workspaces as a
+ * reader - and being demoted inside something you own and pay for would be
+ * surprising in exactly the wrong direction.
  */
 export async function findMembershipForWorkspace(
   db: D1Database,
@@ -169,10 +202,35 @@ export async function findMembershipForWorkspace(
       `SELECT m.org_id, m.role
          FROM memberships m
          JOIN workspaces w ON w.org_id = m.org_id
-        WHERE m.user_id = ? AND w.id = ?`
+        WHERE m.user_id = ?
+          AND w.id = ?
+          AND (m.workspace_id IS NULL OR m.workspace_id = w.id)
+        ORDER BY m.workspace_id IS NULL DESC
+        LIMIT 1`
     )
     .bind(userId, workspaceId)
     .first<MembershipRow>();
+}
+
+/** The workspaces this user can reach, for the dashboard's workspace switcher. */
+export async function listWorkspacesForUser(
+  db: D1Database,
+  userId: string
+): Promise<{ id: string; name: string; role: string; status: string }[]> {
+  const rows = await db
+    .prepare(
+      `SELECT w.id, w.name, w.status, m.role
+         FROM workspaces w
+         JOIN memberships m ON m.org_id = w.org_id
+        WHERE m.user_id = ?
+          AND (m.workspace_id IS NULL OR m.workspace_id = w.id)
+          AND w.status = 'active'
+        GROUP BY w.id
+        ORDER BY w.created_at ASC`
+    )
+    .bind(userId)
+    .all<{ id: string; name: string; role: string; status: string }>();
+  return rows.results;
 }
 
 /**

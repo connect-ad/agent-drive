@@ -1,3 +1,4 @@
+import { useAuth } from '../lib/auth.jsx';
 import React, { useState } from 'react';
 import { PageHead, Panel, Input, Button, Icon, Alert, EmptyState, Toast } from '../components/index.js';
 
@@ -9,8 +10,12 @@ import { PageHead, Panel, Input, Button, Icon, Alert, EmptyState, Toast } from '
  */
 
 export default function Profile() {
-  const [name, setName] = useState('Dana Okafor');
-  const [email, setEmail] = useState('dana@acme.io');
+  // The signed-in person, from Firebase. Editing a display name needs an
+  // endpoint that does not exist yet, so the field shows what is true and says
+  // so rather than pretending a save would stick.
+  const { user } = useAuth();
+  const [name, setName] = useState(user?.displayName ?? '');
+  const [email] = useState(user?.email ?? '');
   const [pendingEmail, setPendingEmail] = useState(null);
   const [saved, setSaved] = useState(false);
   const [toast, setToast] = useState(null);

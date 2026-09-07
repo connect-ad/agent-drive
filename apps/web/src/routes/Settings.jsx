@@ -1,3 +1,4 @@
+import { useWorkspace } from '../lib/workspace.jsx';
 import React, { useState } from 'react';
 import {
   PageHead, Panel, Tabs, Input, Button, Icon, Badge, DataTable, IconButton,
@@ -13,18 +14,21 @@ import { MembersTab, PrivacyTab, BillingTab } from './SettingsTabs.jsx';
  * URL: /w/{ws}/settings
  */
 
-const WORKSPACE_NAME = 'acme-research';
+
 const WORKSPACE_ID = 'ws_8Kq2xR4mN7pL';
 
-const SESSIONS = [
-  { id: 's1', device: 'Chrome on Windows', location: 'Shanghai, CN', lastActive: 'Active now', current: true },
-  { id: 's2', device: 'Safari on macOS', location: 'Shanghai, CN', lastActive: '2 days ago', current: false },
-  { id: 's3', device: 'Firefox on Linux', location: 'Singapore, SG', lastActive: '3 weeks ago', current: false }
-];
+// Firebase holds sessions and exposes no per-device inventory (16 PART 30.4).
+const SESSIONS = [];
 
 export default function Settings() {
   const [tab, setTab] = useState('general');
+  // The real workspace, so the delete confirmation asks you to type the name
+  // of the thing you are actually about to destroy.
+  const { workspace } = useWorkspace();
+  const WORKSPACE_NAME = workspace?.name ?? '';
   const [name, setName] = useState(WORKSPACE_NAME);
+
+  React.useEffect(() => { setName(WORKSPACE_NAME); }, [WORKSPACE_NAME]);
   const [saved, setSaved] = useState(false);
   const [dialog, setDialog] = useState(null); // 'delete-ws' | 'revoke-all'
   const [confirmText, setConfirmText] = useState('');

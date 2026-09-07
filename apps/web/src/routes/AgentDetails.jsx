@@ -13,16 +13,11 @@ import {
  * the confirm rather than failing silently later.
  */
 
-const KEYS = [
-  { id: 'k1', name: 'prod-research-bot', lastFour: '5uJ0', scope: 'Read+Write · /research/*', created: '14 Jan 2026', lastUsed: '4 minutes ago', expires: 'Never' },
-  { id: 'k2', name: 'staging-bot', lastFour: '2xM8', scope: 'Read · Full access', created: '2 Feb 2026', lastUsed: '6 days ago', expires: '1 Mar 2027' }
-];
+// Key listing has no endpoint yet.
+const KEYS = [];
 
-const ACTIVITY = [
-  { action: 'file.upload', actor: 'research-assistant', actorType: 'agent', resource: '/research/2026-q1/market-sizing.pdf', time: '12m' },
-  { action: 'mcp.call', actor: 'research-assistant', actorType: 'agent', resource: 'search_files', time: '14m', detail: 'Query: competitor pricing · 8 results' },
-  { action: 'auth.denied', actor: 'research-assistant', actorType: 'agent', resource: 'delete_file', status: 'denied', time: '1h', detail: 'Missing scope files:delete' }
-];
+// Per-agent activity has no endpoint yet.
+const ACTIVITY = [];
 
 export default function AgentDetails() {
   const { ws, agentId } = useParams();

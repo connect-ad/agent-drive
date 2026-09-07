@@ -5,6 +5,7 @@ import {
   Badge, Modal, ConfirmModal, Toast, EmptyState, UploadItem, Checkbox, CodeBlock
 } from '../components/index.js';
 import { Drawer } from '../components-local/Drawer.jsx';
+import { useResource } from '../lib/useResource.js';
 
 /**
  * 8.9 File Browser (MVP-0) + 8.10 File Details drawer + 8.11 Create Folder modal
@@ -16,28 +17,68 @@ import { Drawer } from '../components-local/Drawer.jsx';
  * populated | loading | empty | no-results | uploading
  */
 
-const FILES = [
-  { id: 'f1', name: 'interviews', kind: 'folder', meta: '18 files · 240 MB', type: 'folder', size: '—', modified: '2 hours ago', by: 'Dana Okafor', byAgent: false },
-  { id: 'f2', name: 'raw-exports', kind: 'folder', meta: '4 files · 1.2 GB', type: 'folder', size: '—', modified: 'Yesterday', by: 'ingest-worker', byAgent: true },
-  { id: 'f3', name: 'market-sizing.pdf', type: 'application/pdf', size: '4.2 MB', modified: '12 minutes ago', by: 'research-assistant', byAgent: true, checksum: '9f2c1a7b4e8d3f60a15c9b2e7d4a8f31c6b0e5d97a2f4c8b1e3d6a9f0c7b2e45', path: '/research/2026-q1/market-sizing.pdf' },
-  { id: 'f4', name: 'competitors.json', type: 'application/json', size: '88 KB', modified: '1 hour ago', by: 'research-assistant', byAgent: true, checksum: '3a7f9c2e5b8d1e40f92c6a8b3d5e7f01a4c9b2e6d8f3a5c7b1e0d4f6a9c2b8e35', path: '/research/2026-q1/competitors.json' },
-  { id: 'f5', name: 'pricing-notes.md', type: 'text/markdown', size: '12 KB', modified: '3 Mar 2026', by: 'Dana Okafor', byAgent: false, path: '/research/pricing-notes.md' },
-  { id: 'f6', name: 'dump', ext: 'BIN', type: 'application/octet-stream', size: '820 MB', modified: '1 Mar 2026', by: 'Dana Okafor', byAgent: false, path: '/research/dump' }
-];
+/** Bytes to something a person reads, at the precision the size deserves. */
+function formatBytes(bytes) {
+  if (!Number.isFinite(bytes)) return '—';
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ['KB', 'MB', 'GB', 'TB'];
+  let value = bytes / 1024;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) { value /= 1024; unit += 1; }
+  return `${value >= 10 ? Math.round(value) : value.toFixed(1)} ${units[unit]}`;
+}
 
-const UPLOADS = [
-  { name: 'transcript-04.mp3', size: '118 MB', status: 'uploading', progress: 0.62 },
-  { name: 'appendix.pdf', size: '2.1 MB', status: 'processing' },
-  { name: 'raw-export.zip', size: '6.1 GB', status: 'failed', error: 'Exceeds the 5 GB per-file limit on your plan.' }
-];
+function relativeTime(iso) {
+  const then = new Date(iso).getTime();
+  if (!Number.isFinite(then)) return '—';
+  const seconds = Math.round((Date.now() - then) / 1000);
+  if (seconds < 60) return 'just now';
+  if (seconds < 3600) return `${Math.floor(seconds / 60)} minutes ago`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)} hours ago`;
+  if (seconds < 172800) return 'yesterday';
+  return new Date(then).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+}
 
-export default function FileBrowser({ state = 'populated' }) {
+/**
+ * The API returns who created a file as an ID, not a name — an agent ID or a
+ * user ID. Resolving those to display names needs an endpoint that does not
+ * exist yet, so this shows the distinction it *can* prove (agent versus person)
+ * and the ID itself, rather than inventing a name to fill the column.
+ */
+function actorOf(createdBy) {
+  const isAgent = typeof createdBy === 'string' && createdBy.startsWith('agt_');
+  return { by: createdBy ?? '—', byAgent: isAgent };
+}
+
+function toRow(file) {
+  const { by, byAgent } = actorOf(file.createdBy);
+  return {
+    id: file.id,
+    name: file.name,
+    path: file.path,
+    type: file.mimeType ?? 'application/octet-stream',
+    size: formatBytes(file.sizeBytes),
+    modified: relativeTime(file.updatedAt),
+    checksum: file.checksumSha256 ?? undefined,
+    by,
+    byAgent
+  };
+}
+
+const loadFiles = (api, workspaceId) => api.listFiles(workspaceId);
+
+export default function FileBrowser() {
   const { ws } = useParams();
-  const loading = state === 'loading';
-  const empty = state === 'empty';
-  const uploading = state === 'uploading';
+  const { status, data, error, reload } = useResource(loadFiles);
+  const loading = status === 'loading';
+  const failed = status === 'failed';
+  const files = useMemo(() => (data?.files ?? []).map(toRow), [data]);
+  // Uploads are transient state belonging to an upload in progress, not
+  // something the server holds. The list is empty until somebody drops a file.
+  const uploading = false;
+  const UPLOADS = [];
 
-  const [query, setQuery] = useState(state === 'no-results' ? 'quarterly' : '');
+  const [query, setQuery] = useState('');
   const [sort, setSort] = useState('modified');
   const [selected, setSelected] = useState([]);
   const [detail, setDetail] = useState(null);
@@ -47,11 +88,13 @@ export default function FileBrowser({ state = 'populated' }) {
   const [toast, setToast] = useState(null);
 
   const rows = useMemo(() => {
-    if (loading || empty) return [];
+    if (loading || failed) return [];
     const q = query.trim().toLowerCase();
-    if (!q) return FILES;
-    return FILES.filter(f => f.name.toLowerCase().includes(q));
-  }, [query, loading, empty]);
+    if (!q) return files;
+    return files.filter(f => f.name.toLowerCase().includes(q));
+  }, [query, loading, failed, files]);
+
+  const empty = status === 'loaded' && files.length === 0;
 
   const allSelected = rows.length > 0 && selected.length === rows.length;
   const toggleAll = () => setSelected(allSelected ? [] : rows.map(r => r.id));

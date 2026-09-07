@@ -11,15 +11,11 @@ import {
 
 /* ------------------------------ 8.22 Members ------------------------------ */
 
-const MEMBERS = [
-  { id: 'm1', name: 'Dana Okafor', email: 'dana@acme.io', role: 'Owner', joined: '14 Jan 2026', you: true },
-  { id: 'm2', name: 'Sam Iyer', email: 'sam@acme.io', role: 'Admin', joined: '2 Feb 2026' },
-  { id: 'm3', name: 'Rin Takada', email: 'rin@acme.io', role: 'Member', joined: '18 Feb 2026' }
-];
+// Member listing has no endpoint yet.
+const MEMBERS = [];
 
-const INVITES = [
-  { id: 'i1', email: 'jo@acme.io', role: 'Member', sent: '2 days ago' }
-];
+// Invitations have no endpoint yet.
+const INVITES = [];
 
 const ROLES = [
   { value: 'Owner', label: 'Owner — full control, including billing and deletion' },
@@ -249,11 +245,8 @@ export function PrivacyTab({ soleOwnerOf = 0 }) {
 
 /* ------------------------------ 8.25 Billing ------------------------------ */
 
-const INVOICES = [
-  { id: 'in1', date: '1 Mar 2026', amount: '$20.00', status: 'Paid', period: 'Mar 2026' },
-  { id: 'in2', date: '1 Feb 2026', amount: '$20.00', status: 'Paid', period: 'Feb 2026' },
-  { id: 'in3', date: '1 Jan 2026', amount: '$20.00', status: 'Paid', period: 'Jan 2026' }
-];
+// Billing is not wired up yet.
+const INVOICES = [];
 
 export function BillingTab({ hasPaymentMethod = true, overLimitOnDowngrade = true }) {
   const [dialog, setDialog] = useState(null);
@@ -286,8 +279,8 @@ export function BillingTab({ hasPaymentMethod = true, overLimitOnDowngrade = tru
         ) : (
           <dl className="dl">
             <dt>Next invoice</dt><dd>1 Apr 2026 — $20.00</dd>
-            <dt>Payment method</dt><dd className="ad-mono-sm">•••• 4242 · exp 09/28</dd>
-            <dt>Billing email</dt><dd>dana@acme.io</dd>
+            <dt>Payment method</dt><dd className="ad-mono-sm">Not set up</dd>
+            <dt>Billing email</dt><dd>—</dd>
           </dl>
         )}
       </Panel>

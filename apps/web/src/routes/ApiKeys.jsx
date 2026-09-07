@@ -14,13 +14,13 @@ import {
  * show-once/masked split; this screen only decides when each mode applies.
  */
 
-const KEYS = [
-  { id: 'k1', name: 'prod-research-bot', agent: 'research-assistant', lastFour: '5uJ0', ops: 'Read+Write', path: '/research/*', created: '14 Jan 2026', lastUsed: '4 minutes ago', expires: 'Never', revoked: false },
-  { id: 'k2', name: 'staging-bot', agent: 'research-assistant', lastFour: '2xM8', ops: 'Read', path: 'Full access', created: '2 Feb 2026', lastUsed: '6 days ago', expires: '1 Mar 2027', revoked: false },
-  { id: 'k3', name: 'old-crawler', agent: 'old-crawler', lastFour: '9tQ1', ops: 'Read', path: 'Full access', created: '4 Dec 2025', lastUsed: '2 Feb 2026', expires: 'Never', revoked: true }
-];
+// Key listing has no endpoint yet.
+const KEYS = [];
 
-const NEW_SECRET = 'ad_live_7fQ2xK9mR4pL8vN3wY6zB1sT5uJ0hG';
+// Filled in by the API when key creation exists. Never a plausible-looking
+// placeholder: a fake key that reads as real is one somebody pastes into a
+// config file and then spends an afternoon debugging.
+const NEW_SECRET = '';
 
 export default function ApiKeys({ state = 'populated' }) {
   const loading = state === 'loading';
@@ -117,9 +117,7 @@ export default function ApiKeys({ state = 'populated' }) {
           label="Agent"
           required
           options={[
-            { value: 'research-assistant', label: 'research-assistant' },
-            { value: 'report-writer', label: 'report-writer' },
-            { value: 'ingest-worker', label: 'ingest-worker' }
+            /* Populated once agents have an endpoint. */
           ]}
         />
         <div>

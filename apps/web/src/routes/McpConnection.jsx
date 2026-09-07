@@ -17,7 +17,8 @@ import {
  */
 
 const ENDPOINT = 'https://mcp.agentdisk.io/v1';
-const REAL_KEY = 'ad_live_7fQ2xK9mR4pL8vN3wY6zB1sT5uJ0hG';
+// The snippet defaults to a placeholder, never a real-looking key (doc 03).
+const REAL_KEY = '';
 const PLACEHOLDER = '<YOUR_API_KEY>';
 
 const CLIENTS = [
@@ -27,11 +28,8 @@ const CLIENTS = [
   { value: 'generic', label: 'Generic MCP client', file: 'mcp.json' }
 ];
 
-const RECENT = [
-  { action: 'mcp.call', actor: 'research-assistant', actorType: 'agent', resource: 'search_files', time: '14m', detail: 'Query: competitor pricing · 8 results' },
-  { action: 'mcp.call', actor: 'research-assistant', actorType: 'agent', resource: 'create_file', time: '18m', detail: '/research/2026-q1/notes.md' },
-  { action: 'auth.denied', actor: 'report-writer', actorType: 'agent', resource: 'delete_file', status: 'denied', time: '1h', detail: 'Missing scope files:delete' }
-];
+// The MCP server is not built, so it has made no calls.
+const RECENT = [];
 
 export default function McpConnection({ state = 'connected-active' }) {
   const { ws } = useParams();

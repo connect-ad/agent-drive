@@ -1,5 +1,5 @@
 import React from 'react';
-import { Routes, Route, Navigate, Outlet, useNavigate, useParams, useLocation } from 'react-router-dom';
+import { Routes, Route, Navigate, Outlet, useNavigate, useParams, useLocation, Link } from 'react-router-dom';
 import { AppShell, Breadcrumb, Badge, Button, Icon } from './components/index.js';
 
 import Dashboard from './routes/Dashboard.jsx';
@@ -83,8 +83,13 @@ function WorkspaceLayout() {
   const navigate = useNavigate();
   const { ws } = useParams();
   const { pathname } = useLocation();
-  const { user } = useAuth();
+  const { user, signOut } = useAuth();
   const { workspaces, workspaceId, select, role } = useWorkspace();
+
+  const handleSignOut = async () => {
+    await signOut();
+    navigate('/', { replace: true });
+  };
   const wsRoot = `/w/${ws}`;
   const active = activeId(pathname, wsRoot);
   const current = NAV.flatMap(g => g.items).find(it => it.id === active);
@@ -128,10 +133,31 @@ function WorkspaceLayout() {
       }
       topbarActions={
         <>
-          <Badge tone="ok" dot pulse>All systems normal</Badge>
-          <Button size="sm" variant="secondary" icon={<Icon name="book" size={13} />}>
+          {/*
+            A workspace switcher rather than a status badge. The badge said "All
+            systems normal" without checking anything, which is a claim the UI
+            was in no position to make.
+          */}
+          {workspaces.length > 1 ? (
+            <select
+              aria-label="Switch workspace"
+              value={ws}
+              onChange={e => navigate(`/w/${e.target.value}`)}
+              style={{
+                font: 'var(--f-body-sm)', color: 'var(--ink)', background: 'var(--surface)',
+                border: '1px solid var(--line)', borderRadius: 'var(--r-2)',
+                padding: 'var(--s-2) var(--s-3)'
+              }}
+            >
+              {workspaces.map(w => (
+                <option key={w.id} value={w.id}>{w.name}</option>
+              ))}
+            </select>
+          ) : null}
+          <Button size="sm" variant="secondary" as={Link} to="/docs" icon={<Icon name="book" size={13} />}>
             Docs
           </Button>
+          <Button size="sm" variant="ghost" onClick={handleSignOut}>Sign out</Button>
         </>
       }
     >

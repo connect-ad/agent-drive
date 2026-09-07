@@ -18,10 +18,8 @@ import {
 
 const EVENTS = ['file.created', 'file.updated', 'file.deleted', 'transform.completed'];
 
-const HOOKS = [
-  { id: 'w1', url: 'https://acme.io/webhooks/agentdisk', events: ['file.created', 'file.updated'], status: 'active', last: '4 minutes ago', ok: true },
-  { id: 'w2', url: 'https://ops.acme.io/hooks/ingest', events: ['file.created'], status: 'failing', last: '2 hours ago', ok: false, failures: 4 }
-];
+// Webhook registration has no endpoint yet.
+const HOOKS = [];
 
 const FAILURES = `503 Service Unavailable
 upstream connect error or disconnect/reset before headers

@@ -11,12 +11,8 @@ import {
  * States: loading | populated | empty
  */
 
-const AGENTS = [
-  { id: 'research-assistant', name: 'Research assistant', status: 'active', keys: 2, lastActive: '4 minutes ago' },
-  { id: 'report-writer', name: 'Report writer', status: 'key_expired', keys: 1, lastActive: '6 days ago' },
-  { id: 'ingest-worker', name: 'Ingest worker', status: 'no_key', keys: 0, lastActive: 'Never' },
-  { id: 'old-crawler', name: 'Old crawler', status: 'revoked', keys: 0, lastActive: '2 Feb 2026' }
-];
+// Agents have no endpoint yet; nothing to list.
+const AGENTS = [];
 
 // Status badge always pairs a tone with a word — never colour alone (spec: Accessibility).
 const STATUS = {

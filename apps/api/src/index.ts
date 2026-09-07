@@ -22,6 +22,19 @@ import { purgeExpiredFiles, reconcileCounters } from "./jobs/purge";
 import { handleDelivery, isWebhookEvent } from "./jobs/webhook-delivery";
 import { listActivity } from "./routes/activity";
 import {
+  staffCreate,
+  staffForceLogout,
+  staffGetWorkspace,
+  staffListWorkspaces,
+  staffLogin,
+  staffLogout,
+  staffOverview,
+  staffRevokeKeys,
+  staffSetWorkspaceStatus,
+  staffWhoami,
+  staffWorkspaceActivity,
+} from "./routes/staff";
+import {
   createWebhook,
   deleteWebhook,
   listWebhooks,
@@ -112,6 +125,12 @@ export interface Env {
   STRIPE_WEBHOOK_SECRET?: string;
   /** Where Stripe's hosted portal returns the customer. Public configuration. */
   DASHBOARD_URL?: string;
+
+  /**
+   * Encrypts staff TOTP secrets at rest (06 PART 16.16a). Staff login refuses
+   * to run without it, because an unverifiable second factor is not one.
+   */
+  DATABASE_ENCRYPTION_KEY?: string;
 }
 
 export interface HealthReport {
@@ -283,6 +302,65 @@ export default {
       }
 
       const segments = url.pathname.split("/").filter((segment) => segment !== "");
+
+      // Staff. A separate table, a separate token shape and a separate code
+      // path from every customer route above - so there is no path along which
+      // a customer credential could be evaluated against staff logic, or the
+      // reverse. This is the one place StaffScopedAccess is reachable.
+      if (segments[0] === "v1" && segments[1] === "staff") {
+        const staffDeps = {
+          db: env.DB,
+          kv: env.CACHE,
+          encryptionKey: env.DATABASE_ENCRYPTION_KEY,
+          requestId: id,
+          now: Date.now(),
+        };
+
+        const [, , area, resourceId, action] = segments;
+
+        if (area === "login" && request.method === "POST") {
+          return await staffLogin(request, staffDeps);
+        }
+        if (area === "logout" && request.method === "POST") {
+          return await staffLogout(request, staffDeps);
+        }
+        if (area === "whoami" && request.method === "GET") {
+          return await staffWhoami(request, staffDeps);
+        }
+        if (area === "overview" && request.method === "GET") {
+          return await staffOverview(request, staffDeps);
+        }
+        if (area === "users" && request.method === "POST" && resourceId === undefined) {
+          return await staffCreate(request, staffDeps);
+        }
+
+        if (area === "workspaces") {
+          if (resourceId === undefined && request.method === "GET") {
+            return await staffListWorkspaces(request, staffDeps);
+          }
+          if (resourceId !== undefined && action === undefined && request.method === "GET") {
+            return await staffGetWorkspace(request, staffDeps, resourceId);
+          }
+          if (resourceId !== undefined && action === "activity" && request.method === "GET") {
+            return await staffWorkspaceActivity(request, staffDeps, resourceId);
+          }
+          if (resourceId !== undefined && action === "status" && request.method === "POST") {
+            return await staffSetWorkspaceStatus(request, staffDeps, resourceId);
+          }
+        }
+
+        if (area === "users" && resourceId !== undefined) {
+          if (action === "force-logout" && request.method === "POST") {
+            return await staffForceLogout(request, staffDeps, resourceId);
+          }
+          if (action === "revoke-keys" && request.method === "POST") {
+            return await staffRevokeKeys(request, staffDeps, resourceId);
+          }
+        }
+
+        throw new ApiError("NOT_FOUND", "No such route.");
+      }
+
 
       // The customer's own webhook endpoints. `/v1/webhooks/stripe` is checked
       // first, below, because it is the one path under this prefix that is

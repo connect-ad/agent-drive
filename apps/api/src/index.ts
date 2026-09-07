@@ -15,6 +15,8 @@ import { whoami } from "./routes/whoami";
 import { logoutAll } from "./routes/logout-all";
 import { createWorkspace } from "./routes/create-workspace";
 import { createWorkspaceForUser, listWorkspaces } from "./routes/workspaces";
+import { createAgent, deleteAgent, getAgent, listAgents, patchAgent } from "./routes/agents";
+import { createKey, listKeys, revokeKey } from "./routes/keys";
 import { resolveVerifiedUser } from "./auth/authenticate";
 import { extractBearerToken, isApiKeyToken } from "./lib/keys";
 import { unauthorized } from "./lib/errors";
@@ -244,9 +246,51 @@ export default {
         return await authed({ op: null }, whoami);
       }
 
+      const segments = url.pathname.split("/").filter((segment) => segment !== "");
+
+      // Agents. Listing and reading need `read`; anything that changes one
+      // needs `write`, because an agent is the thing a credential acts as and
+      // renaming or disabling it changes what other credentials can do.
+      if (segments[0] === "v1" && segments[1] === "agents") {
+        const agentId = segments[2];
+        if (agentId === undefined) {
+          if (request.method === "GET") return await authed({ op: "list" }, listAgents);
+          if (request.method === "POST") return await authed({ op: "write" }, createAgent);
+          throw new ApiError("NOT_FOUND", "No such route.");
+        }
+        if (segments[3] !== undefined) throw new ApiError("NOT_FOUND", "No such route.");
+
+        const onAgent = (requirement: Requirement, handler: FileHandler): Promise<Response> =>
+          authed(requirement, (authCtx, req) => handler(authCtx, req, agentId));
+
+        if (request.method === "GET") return await onAgent({ op: "read" }, getAgent);
+        if (request.method === "PATCH") return await onAgent({ op: "write" }, patchAgent);
+        if (request.method === "DELETE") return await onAgent({ op: "delete" }, deleteAgent);
+        throw new ApiError("NOT_FOUND", "No such route.");
+      }
+
+      // Keys. Minting has its own scope op rather than reusing `write`: the
+      // authority to create a credential is categorically different from the
+      // authority to write a file, and a key that can do the latter must not
+      // silently be able to do the former.
+      if (segments[0] === "v1" && segments[1] === "keys") {
+        const keyId = segments[2];
+        if (keyId === undefined) {
+          if (request.method === "GET") return await authed({ op: "list" }, listKeys);
+          if (request.method === "POST") return await authed({ op: "keys:create" }, createKey);
+          throw new ApiError("NOT_FOUND", "No such route.");
+        }
+        if (segments[3] !== undefined) throw new ApiError("NOT_FOUND", "No such route.");
+        if (request.method === "DELETE") {
+          return await authed({ op: "keys:create" }, (authCtx, req) =>
+            revokeKey(authCtx, req, keyId)
+          );
+        }
+        throw new ApiError("NOT_FOUND", "No such route.");
+      }
+
       // Everything below is /v1/files. Segments, not string prefixes: matching
       // on `pathname.startsWith("/v1/files")` would also match "/v1/filesX".
-      const segments = url.pathname.split("/").filter((segment) => segment !== "");
       if (segments[0] === "v1" && segments[1] === "files") {
         const fileId = segments[2];
         const action = segments[3];

@@ -429,7 +429,11 @@ export class WorkspaceScopedAgents extends WorkspaceScoped {
 
   async list(): Promise<AgentRow[]> {
     const result = await this.db
-      .prepare(`SELECT * FROM agents WHERE workspace_id = ? ORDER BY created_at DESC`)
+      .prepare(
+        `SELECT * FROM agents
+          WHERE workspace_id = ? AND status != 'deleted'
+          ORDER BY created_at DESC`
+      )
       .bind(this.workspaceId)
       .all<AgentRow>();
     return result.results ?? [];
@@ -447,6 +451,60 @@ export class WorkspaceScopedAgents extends WorkspaceScoped {
       .bind(row.id, this.workspaceId, row.name, row.description, row.status,
             row.created_by_user_id, row.last_seen_at, row.created_at)
       .run();
+  }
+
+  /**
+   * Rename, re-describe, or enable/disable. Only the fields given are touched.
+   *
+   * Disabling is the point of `status`: a disabled agent's keys stop working
+   * immediately, because authentication checks the agent's status on every
+   * request rather than trusting that whoever disabled it also remembered to
+   * revoke each of its keys.
+   */
+  async update(
+    id: string,
+    changes: { name?: string; description?: string | null; status?: string }
+  ): Promise<boolean> {
+    const sets: string[] = [];
+    const values: (string | null)[] = [];
+    if (changes.name !== undefined) { sets.push("name = ?"); values.push(changes.name); }
+    if (changes.description !== undefined) {
+      sets.push("description = ?");
+      values.push(changes.description);
+    }
+    if (changes.status !== undefined) { sets.push("status = ?"); values.push(changes.status); }
+    if (sets.length === 0) return false;
+
+    const result = await this.db
+      .prepare(`UPDATE agents SET ${sets.join(", ")} WHERE workspace_id = ? AND id = ?`)
+      .bind(...values, this.workspaceId, id)
+      .run();
+    return (result.meta.changes ?? 0) > 0;
+  }
+
+  /**
+   * Soft delete, and it has to be.
+   *
+   * `api_keys.agent_id` references this row, so a hard DELETE fails the foreign
+   * key the moment the agent has ever held a key - and the two ways around that
+   * are both worse than keeping the row. Deleting the keys destroys the record
+   * of what the agent did; nulling their `agent_id` silently converts them from
+   * agent credentials into workspace-level ones, which is exactly the wrong
+   * direction for a credential to drift.
+   *
+   * Marking it deleted keeps every key's provenance intact, keeps the status
+   * check at authentication working (a deleted agent is not active, so its keys
+   * are refused), and takes the agent out of every list.
+   */
+  async delete(id: string): Promise<boolean> {
+    const result = await this.db
+      .prepare(
+        `UPDATE agents SET status = 'deleted'
+          WHERE workspace_id = ? AND id = ? AND status != 'deleted'`
+      )
+      .bind(this.workspaceId, id)
+      .run();
+    return (result.meta.changes ?? 0) > 0;
   }
 }
 
@@ -466,12 +524,62 @@ export class WorkspaceScopedApiKeys extends WorkspaceScoped {
       .first<ApiKeyRow>();
   }
 
+  async insert(row: ApiKeyRow): Promise<void> {
+    if (row.workspace_id !== this.workspaceId) {
+      throw new Error("Refusing to insert an API key row belonging to another workspace.");
+    }
+    await this.db
+      .prepare(
+        `INSERT INTO api_keys
+           (id, workspace_id, agent_id, name, key_prefix, key_last_four, key_hash,
+            scopes, created_by_user_id, parent_key_id, expires_at, last_used_at,
+            revoked_at, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?)`
+      )
+      .bind(
+        row.id, this.workspaceId, row.agent_id, row.name, row.key_prefix,
+        row.key_last_four, row.key_hash, row.scopes, row.created_by_user_id,
+        row.parent_key_id, row.expires_at, row.created_at
+      )
+      .run();
+  }
+
+  /** Keys belonging to one agent, for the cascade when that agent is deleted. */
+  async listForAgent(agentId: string): Promise<ApiKeyRow[]> {
+    const result = await this.db
+      .prepare(
+        `SELECT * FROM api_keys WHERE workspace_id = ? AND agent_id = ? ORDER BY created_at DESC`
+      )
+      .bind(this.workspaceId, agentId)
+      .all<ApiKeyRow>();
+    return result.results ?? [];
+  }
+
   async revoke(id: string, now: number): Promise<boolean> {
     const result = await this.db
       .prepare(`UPDATE api_keys SET revoked_at = ? WHERE workspace_id = ? AND id = ? AND revoked_at IS NULL`)
       .bind(now, this.workspaceId, id)
       .run();
     return (result.meta.changes ?? 0) > 0;
+  }
+
+  /**
+   * Revoke every live key belonging to one agent, in one statement.
+   *
+   * Used when an agent is deleted. Disabling an agent does not need this - the
+   * status check at authentication already stops its keys - but deleting one
+   * removes the row that check reads, so the keys must be revoked explicitly or
+   * they would outlive the thing they belonged to.
+   */
+  async revokeForAgent(agentId: string, now: number): Promise<number> {
+    const result = await this.db
+      .prepare(
+        `UPDATE api_keys SET revoked_at = ?
+          WHERE workspace_id = ? AND agent_id = ? AND revoked_at IS NULL`
+      )
+      .bind(now, this.workspaceId, agentId)
+      .run();
+    return result.meta.changes ?? 0;
   }
 }
 

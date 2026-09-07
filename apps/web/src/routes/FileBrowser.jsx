@@ -6,6 +6,8 @@ import {
 } from '../components/index.js';
 import { Drawer } from '../components-local/Drawer.jsx';
 import { useResource } from '../lib/useResource.js';
+import { useWorkspace } from '../lib/workspace.jsx';
+import { uploadFile } from '../lib/upload.js';
 
 /**
  * 8.9 File Browser (MVP-0) + 8.10 File Details drawer + 8.11 Create Folder modal
@@ -73,10 +75,12 @@ export default function FileBrowser() {
   const loading = status === 'loading';
   const failed = status === 'failed';
   const files = useMemo(() => (data?.files ?? []).map(toRow), [data]);
+  const { api, workspaceId, canWrite } = useWorkspace();
   // Uploads are transient state belonging to an upload in progress, not
   // something the server holds. The list is empty until somebody drops a file.
-  const uploading = false;
-  const UPLOADS = [];
+  const [uploads, setUploads] = useState([]);
+  const uploading = uploads.length > 0;
+  const fileInput = React.useRef(null);
 
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState('modified');
@@ -95,6 +99,46 @@ export default function FileBrowser() {
   }, [query, loading, failed, files]);
 
   const empty = status === 'loaded' && files.length === 0;
+
+  /**
+   * Upload one file and keep its row in `uploads` updated as it goes.
+   *
+   * Each file gets its own entry keyed by a generated id rather than by name,
+   * because dropping two files called `report.pdf` from different folders is
+   * ordinary and would otherwise collapse into one row that flickers.
+   */
+  const startUpload = async file => {
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    setUploads(list => [...list, { id, name: file.name, size: file.size, status: 'uploading', progress: 0 }]);
+
+    const patch = changes =>
+      setUploads(list => list.map(u => (u.id === id ? { ...u, ...changes } : u)));
+
+    try {
+      await uploadFile(api, workspaceId, file, {
+        onProgress: progress => patch({ progress })
+      });
+      patch({ status: 'done', progress: 1 });
+      // Drop the finished row after a beat so the list does not become a
+      // permanent history of everything uploaded this session.
+      setTimeout(() => setUploads(list => list.filter(u => u.id !== id)), 2500);
+      void reload();
+    } catch (err) {
+      patch({
+        status: 'failed',
+        // Naming the step matters: a failed `complete` means the bytes are in
+        // storage and the row is still pending, which is a different problem
+        // from a transfer that never landed.
+        error: err.step === 'complete'
+          ? `Uploaded, but could not be finalised: ${err.message}`
+          : err.message
+      });
+    }
+  };
+
+  const uploadMany = files => {
+    for (const file of Array.from(files)) void startUpload(file);
+  };
 
   const allSelected = rows.length > 0 && selected.length === rows.length;
   const toggleAll = () => setSelected(allSelected ? [] : rows.map(r => r.id));
@@ -166,12 +210,33 @@ export default function FileBrowser() {
         title="Files"
         subtitle="Everything in this workspace, and which agent put it there."
         actions={
-          <>
-            <Button variant="secondary" icon={<Icon name="folder" size={14} />} onClick={() => setDialog('new-folder')}>
-              New folder
-            </Button>
-            <Button icon={<Icon name="upload" size={14} />}>Upload</Button>
-          </>
+          canWrite ? (
+            <>
+              <Button variant="secondary" icon={<Icon name="folder" size={14} />} onClick={() => setDialog('new-folder')}>
+                New folder
+              </Button>
+              {/*
+                The keyboard-accessible equivalent of the dropzone. A hidden
+                input rather than a styled one: file inputs cannot be restyled
+                consistently, and a drag target on its own leaves anybody not
+                using a mouse with no way to upload at all.
+              */}
+              <input
+                ref={fileInput}
+                type="file"
+                multiple
+                hidden
+                onChange={e => {
+                  if (e.target.files?.length) uploadMany(e.target.files);
+                  // Reset so choosing the same file twice in a row still fires.
+                  e.target.value = '';
+                }}
+              />
+              <Button icon={<Icon name="upload" size={14} />} onClick={() => fileInput.current?.click()}>
+                Upload
+              </Button>
+            </>
+          ) : null
         }
       />
 
@@ -215,8 +280,15 @@ export default function FileBrowser() {
 
       {uploading ? (
         <Panel flush title="Uploading" subtitle="Files go straight to storage, never through our API.">
-          {UPLOADS.map(u => (
-            <UploadItem key={u.name} {...u} onRetry={() => {}} onCancel={() => {}} />
+          {uploads.map(u => (
+            <UploadItem
+              key={u.id}
+              name={u.name}
+              status={u.status}
+              progress={u.progress}
+              error={u.error}
+              onCancel={() => setUploads(list => list.filter(x => x.id !== u.id))}
+            />
           ))}
         </Panel>
       ) : null}
@@ -227,7 +299,15 @@ export default function FileBrowser() {
         style={{ position: 'relative' }}
         onDragOver={e => { e.preventDefault(); setDragging(true); }}
         onDragLeave={() => setDragging(false)}
-        onDrop={e => { e.preventDefault(); setDragging(false); setToast({ tone: 'ok', title: '3 files uploaded', body: 'Text extraction is running in the background.' }); }}
+        onDrop={e => {
+          e.preventDefault();
+          setDragging(false);
+          if (!canWrite) {
+            setToast({ tone: 'danger', title: 'Read-only access', body: 'Your role on this workspace cannot upload files.' });
+            return;
+          }
+          if (e.dataTransfer?.files?.length) uploadMany(e.dataTransfer.files);
+        }}
       >
         {dragging ? (
           <div className="dz-overlay">

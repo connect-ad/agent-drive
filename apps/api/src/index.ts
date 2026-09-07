@@ -18,6 +18,7 @@ import { createWorkspaceForUser, listWorkspaces } from "./routes/workspaces";
 import { createAgent, deleteAgent, getAgent, listAgents, patchAgent } from "./routes/agents";
 import { createKey, listKeys, revokeKey } from "./routes/keys";
 import { handleMcp } from "./mcp/server";
+import { purgeExpiredFiles, reconcileCounters } from "./jobs/purge";
 import { listActivity } from "./routes/activity";
 import {
   createWebhook,
@@ -494,6 +495,50 @@ export default {
     } catch (thrown) {
       return withCorsHeaders(toErrorResponse(thrown, id), request, env);
     }
+  },
+
+  /**
+   * The scheduled half of keeping D1 and R2 in agreement (10.8).
+   *
+   * Both jobs run here rather than through the queue because neither is
+   * triggered by an event - they are periodic sweeps over state that drifts on
+   * its own. The queue exists for work that follows from a specific request.
+   *
+   * Failures are logged and swallowed. A cron that throws is retried by
+   * Cloudflare on its own schedule anyway, and there is nobody waiting on this
+   * to return.
+   */
+  async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    const now = Date.now();
+    ctx.waitUntil(
+      (async () => {
+        try {
+          const purged = await purgeExpiredFiles(env.DB, env.FILES, now);
+          console.log(JSON.stringify({ level: "info", message: "purge run", ...purged }));
+        } catch (err) {
+          console.log(
+            JSON.stringify({
+              level: "error",
+              message: "purge run failed",
+              reason: err instanceof Error ? err.message : String(err),
+            })
+          );
+        }
+
+        try {
+          const reconciled = await reconcileCounters(env.DB, now);
+          console.log(JSON.stringify({ level: "info", message: "reconcile run", ...reconciled }));
+        } catch (err) {
+          console.log(
+            JSON.stringify({
+              level: "error",
+              message: "reconcile run failed",
+              reason: err instanceof Error ? err.message : String(err),
+            })
+          );
+        }
+      })()
+    );
   },
 
   /**

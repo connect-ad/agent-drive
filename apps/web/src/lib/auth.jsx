@@ -1,0 +1,201 @@
+/**
+ * The signed-in person, and the four ways to become one — doc 16 PART 30,
+ * doc 03 §8.3–8.7.
+ *
+ * Google, GitHub, email/password and email-link all ship together rather than
+ * being staged across MVP tiers: Firebase makes them equally cheap, so staging
+ * them would be an arbitrary restriction rather than a saving.
+ *
+ * Error handling has one rule that outranks convenience: **a sign-in failure
+ * never says which half was wrong.** Firebase distinguishes `user-not-found`
+ * from `wrong-password`; surfacing that difference turns the login form into an
+ * oracle for whether an address has an account here. They are collapsed into
+ * one message, matching what the API does for a bad API key.
+ */
+
+import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import {
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  signInWithPopup,
+  signOut as fbSignOut,
+  sendPasswordResetEmail,
+  sendEmailVerification,
+  sendSignInLinkToEmail,
+  isSignInWithEmailLink,
+  signInWithEmailLink,
+  verifyPasswordResetCode,
+  confirmPasswordReset,
+  onIdTokenChanged
+} from 'firebase/auth';
+import { auth, firebaseConfigured, googleProvider, githubProvider } from './firebase.js';
+
+const AuthContext = createContext(null);
+
+/** Where Firebase sends an email-link recipient back to. */
+const EMAIL_LINK_REDIRECT = `${window.location.origin}/login`;
+
+/** The address is remembered so the returning link does not have to ask again. */
+const EMAIL_LINK_KEY = 'agentdisk.emailLink.address';
+
+const GENERIC_SIGNIN_FAILURE =
+  "That email and password don't match an account. Check both and try again.";
+
+/**
+ * Turn a Firebase error into something a person can act on, without saying more
+ * than they are entitled to know.
+ */
+export function describeAuthError(error) {
+  const code = error?.code ?? '';
+  switch (code) {
+    case 'auth/invalid-credential':
+    case 'auth/invalid-email':
+    case 'auth/user-not-found':
+    case 'auth/wrong-password':
+      return GENERIC_SIGNIN_FAILURE;
+    case 'auth/too-many-requests':
+      return 'Too many attempts. Wait a few minutes before trying again.';
+    case 'auth/email-already-in-use':
+      // Unavoidable on signup - the account cannot be created either way, and
+      // saying nothing leaves the person stuck on a form that will never work.
+      return 'That email already has an account. Try signing in instead.';
+    case 'auth/weak-password':
+      return 'Pick a password of at least 8 characters.';
+    case 'auth/popup-closed-by-user':
+    case 'auth/cancelled-popup-request':
+      return null; // They changed their mind. Not an error worth showing.
+    case 'auth/popup-blocked':
+      return 'Your browser blocked the sign-in window. Allow pop-ups for this site and try again.';
+    case 'auth/account-exists-with-different-credential':
+      return 'That email is already registered with a different sign-in method. Use the one you signed up with.';
+    case 'auth/unauthorized-domain':
+      return 'This site is not an authorised sign-in domain for the Firebase project.';
+    case 'auth/network-request-failed':
+      return 'Could not reach the sign-in service. Check your connection and try again.';
+    default:
+      return 'Something went wrong signing you in. Try again.';
+  }
+}
+
+export function AuthProvider({ children }) {
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(firebaseConfigured);
+
+  useEffect(() => {
+    if (!auth) return undefined;
+    // onIdTokenChanged rather than onAuthStateChanged: it also fires on the
+    // SDK's silent hourly token refresh, so anything reading the token stays
+    // current instead of holding one that quietly expired.
+    return onIdTokenChanged(auth, next => {
+      setUser(next);
+      setLoading(false);
+    });
+  }, []);
+
+  const value = useMemo(
+    () => ({
+      user,
+      loading,
+      configured: firebaseConfigured,
+
+      /** The current ID token, refreshed by the SDK when it needs to be. */
+      async getToken() {
+        if (!auth?.currentUser) return null;
+        return auth.currentUser.getIdToken();
+      },
+
+      async signInWithPassword(email, password) {
+        await signInWithEmailAndPassword(auth, email, password);
+      },
+
+      async signUpWithPassword(email, password) {
+        const credential = await createUserWithEmailAndPassword(auth, email, password);
+        // Fired here rather than left to a later screen: an unverified address
+        // cannot claim an invitation on the API side, so the sooner it is
+        // verified the sooner the account behaves as the person expects.
+        await sendEmailVerification(credential.user);
+      },
+
+      async signInWithGoogle() {
+        await signInWithPopup(auth, googleProvider());
+      },
+
+      async signInWithGithub() {
+        await signInWithPopup(auth, githubProvider());
+      },
+
+      async sendEmailLink(email) {
+        await sendSignInLinkToEmail(auth, email, {
+          url: EMAIL_LINK_REDIRECT,
+          handleCodeInApp: true
+        });
+        try {
+          window.localStorage.setItem(EMAIL_LINK_KEY, email);
+        } catch {
+          /* Private mode. The returning screen asks for the address instead. */
+        }
+      },
+
+      /** True when the current URL is a Firebase email-link landing. */
+      isEmailLink(href) {
+        return Boolean(auth) && isSignInWithEmailLink(auth, href ?? window.location.href);
+      },
+
+      async completeEmailLink(href, fallbackEmail) {
+        let email = fallbackEmail ?? null;
+        if (!email) {
+          try {
+            email = window.localStorage.getItem(EMAIL_LINK_KEY);
+          } catch {
+            email = null;
+          }
+        }
+        if (!email) {
+          const wanted = new Error('email address required to complete sign-in');
+          wanted.code = 'agentdisk/email-link-needs-address';
+          throw wanted;
+        }
+        await signInWithEmailLink(auth, email, href ?? window.location.href);
+        try {
+          window.localStorage.removeItem(EMAIL_LINK_KEY);
+        } catch {
+          /* nothing to clean up */
+        }
+      },
+
+      async sendReset(email) {
+        await sendPasswordResetEmail(auth, email);
+      },
+
+      /**
+       * Check the one-time code from a reset email before showing the form, so
+       * an expired link says so immediately rather than after somebody has
+       * typed a new password twice. Resolves to the address it belongs to.
+       */
+      async verifyResetCode(code) {
+        return verifyPasswordResetCode(auth, code);
+      },
+
+      async confirmReset(code, password) {
+        await confirmPasswordReset(auth, code, password);
+      },
+
+      async resendVerification() {
+        if (auth?.currentUser) await sendEmailVerification(auth.currentUser);
+      },
+
+      async signOut() {
+        if (auth) await fbSignOut(auth);
+      }
+    }),
+    [user, loading]
+  );
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+}
+
+export function useAuth() {
+  const context = useContext(AuthContext);
+  if (!context) throw new Error('useAuth must be used inside an AuthProvider');
+  return context;
+}

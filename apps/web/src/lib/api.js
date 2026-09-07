@@ -1,0 +1,101 @@
+/**
+ * The one place the dashboard talks to the API.
+ *
+ * Three things it centralises, each of which would otherwise be got subtly
+ * wrong in a dozen call sites:
+ *
+ * 1. **The bearer token comes from the SDK at call time, never from a variable.**
+ *    Firebase ID tokens last an hour and the SDK renews them silently. Caching
+ *    one in a closure works perfectly for fifty-nine minutes and then starts
+ *    returning 401s that look like a backend fault.
+ * 2. **`workspaceId` is a query parameter on every workspace-scoped call.** A
+ *    person's credential names no workspace - unlike an API key, which carries
+ *    its own - so the API asks the caller which one they mean.
+ * 3. **The error envelope is unwrapped into a real Error.** Doc 05 PART 13
+ *    gives every failure a `code` and a `requestId`; both survive to the caller,
+ *    because "something went wrong" without the request ID is unsupportable.
+ */
+
+const BASE_URL = import.meta.env.VITE_API_BASE ?? 'https://api-dev.agentdisk.io';
+
+export class ApiError extends Error {
+  constructor(status, code, message, requestId) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+    this.code = code;
+    this.requestId = requestId ?? null;
+  }
+}
+
+/** True when re-authenticating could plausibly fix it. */
+export function isAuthError(error) {
+  return error instanceof ApiError && (error.status === 401 || error.status === 403);
+}
+
+async function toError(response) {
+  let code = 'UNKNOWN';
+  let message = `Request failed with ${response.status}.`;
+  let requestId = null;
+  try {
+    const body = await response.json();
+    if (body?.error) {
+      code = body.error.code ?? code;
+      message = body.error.message ?? message;
+      requestId = body.error.requestId ?? null;
+    }
+  } catch {
+    // A non-JSON error body (a proxy, an outage). The status is all we have.
+  }
+  return new ApiError(response.status, code, message, requestId);
+}
+
+export function createApiClient(getToken) {
+  async function request(path, { method = 'GET', body, workspaceId, signal } = {}) {
+    const token = await getToken();
+    if (!token) {
+      throw new ApiError(401, 'UNAUTHORIZED', 'You are not signed in.', null);
+    }
+
+    const url = new URL(path, BASE_URL);
+    if (workspaceId) url.searchParams.set('workspaceId', workspaceId);
+
+    const headers = { authorization: `Bearer ${token}` };
+    if (body !== undefined) headers['content-type'] = 'application/json';
+
+    const response = await fetch(url, {
+      method,
+      headers,
+      signal,
+      ...(body === undefined ? {} : { body: JSON.stringify(body) })
+    });
+
+    if (!response.ok) throw await toError(response);
+    if (response.status === 204) return null;
+    return response.json();
+  }
+
+  return {
+    request,
+
+    whoami: workspaceId => request('/v1/whoami', { workspaceId }),
+
+    listWorkspaces: () => request('/v1/workspaces'),
+    createWorkspace: name => request('/v1/workspaces', { method: 'POST', body: { name } }),
+
+    listFiles: (workspaceId, params = {}) => {
+      const query = new URLSearchParams(params).toString();
+      return request(`/v1/files${query ? `?${query}` : ''}`, { workspaceId });
+    },
+    getFile: (workspaceId, fileId) => request(`/v1/files/${fileId}`, { workspaceId }),
+    deleteFile: (workspaceId, fileId) =>
+      request(`/v1/files/${fileId}`, { method: 'DELETE', workspaceId }),
+
+    listFolders: workspaceId => request('/v1/folders', { workspaceId }),
+    createFolder: (workspaceId, path) =>
+      request('/v1/folders', { method: 'POST', body: { path }, workspaceId }),
+
+    logoutEverywhere: workspaceId =>
+      request('/v1/me/logout-all', { method: 'POST', workspaceId })
+  };
+}

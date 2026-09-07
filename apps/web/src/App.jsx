@@ -17,6 +17,9 @@ import { Landing, Pricing } from './routes/Marketing.jsx';
 import McpConnection from './routes/McpConnection.jsx';
 import Webhooks from './routes/Webhooks.jsx';
 import ActivityLog from './routes/ActivityLog.jsx';
+import RequireAuth, { RequireWorkspace } from './lib/RequireAuth.jsx';
+import { useAuth } from './lib/auth.jsx';
+import { useWorkspace } from './lib/workspace.jsx';
 
 /**
  * Sidebar navigation — doc 03 §7.3. Three groups: workspace, agent access, account.
@@ -50,8 +53,17 @@ export const NAV = [
   }
 ];
 
-const WORKSPACE = { name: 'acme-research', meta: 'Pro · 3 agents' };
-const USER = { name: 'Dana Okafor', email: 'dana@acme.io' };
+/**
+ * `/app` is the one URL the rest of the product links to without knowing which
+ * workspace anybody is in. It resolves to the current one - remembered across
+ * reloads - so a bookmark, a redirect after sign-in and an email link all land
+ * somewhere real instead of a hardcoded slug that belongs to nobody.
+ */
+function CurrentWorkspaceRedirect() {
+  const { workspaceId, loading } = useWorkspace();
+  if (loading) return null;
+  return workspaceId ? <Navigate to={`/w/${workspaceId}`} replace /> : <Navigate to="/login" replace />;
+}
 
 /** Which nav id is active for the current pathname. */
 function activeId(pathname, wsRoot) {
@@ -69,9 +81,28 @@ function WorkspaceLayout() {
   const navigate = useNavigate();
   const { ws } = useParams();
   const { pathname } = useLocation();
+  const { user } = useAuth();
+  const { workspaces, workspaceId, select, role } = useWorkspace();
   const wsRoot = `/w/${ws}`;
   const active = activeId(pathname, wsRoot);
   const current = NAV.flatMap(g => g.items).find(it => it.id === active);
+
+  // The URL is the source of truth for which workspace is open, so a shared
+  // link opens the workspace it names rather than whichever one this browser
+  // last had selected.
+  React.useEffect(() => {
+    if (ws && ws !== workspaceId && workspaces.some(w => w.id === ws)) select(ws);
+  }, [ws, workspaceId, workspaces, select]);
+
+  const open = workspaces.find(w => w.id === ws) ?? null;
+  const WORKSPACE = {
+    name: open?.name ?? 'Workspace',
+    meta: role ? `${role[0].toUpperCase()}${role.slice(1)}` : ''
+  };
+  const USER = {
+    name: user?.displayName ?? user?.email ?? 'Signed in',
+    email: user?.email ?? ''
+  };
 
   return (
     <AppShell
@@ -112,7 +143,11 @@ export default function App() {
     <Routes>
       <Route path="/" element={<Landing />} />
       <Route path="/pricing" element={<Pricing />} />
-      <Route path="/app" element={<Navigate to="/w/acme-research" replace />} />
+      <Route element={<RequireAuth />}>
+        <Route path="/app" element={<CurrentWorkspaceRedirect />} />
+      </Route>
+      <Route element={<RequireAuth />}>
+      <Route element={<RequireWorkspace />}>
       <Route path="/w/:ws" element={<WorkspaceLayout />}>
         <Route index element={<Dashboard />} />
         <Route path="files" element={<FileBrowser />} />
@@ -126,6 +161,8 @@ export default function App() {
         <Route path="usage" element={<Usage />} />
         <Route path="settings" element={<Settings />} />
         <Route path="profile" element={<Profile />} />
+      </Route>
+      </Route>
       </Route>
       <Route path="/login" element={<Login />} />
       <Route path="/signup" element={<Signup />} />

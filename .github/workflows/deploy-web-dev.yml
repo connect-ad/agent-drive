@@ -225,20 +225,53 @@ jobs:
         working-directory: apps/web
         run: npm ci
 
-      # Both values are baked into the bundle, which is correct: a site key and a
-      # hostname are public. Nothing secret may be passed here - a static bundle
-      # is readable by every visitor.
+      # Everything here is baked into the bundle, which is correct: a site key,
+      # a hostname and Firebase's web config are all public by design - the
+      # Firebase config identifies the project, it does not authorise anything,
+      # and what stops a stranger using it is the project's authorised-domain
+      # list plus the API's own `aud` check. Nothing secret may be passed here;
+      # a static bundle is readable by every visitor.
+      #
+      # These come from GitHub Environment *variables* rather than secrets, so
+      # they stay readable and reviewable instead of being masked in logs where
+      # a wrong value would be invisible.
       - name: Build dashboard
         working-directory: apps/web
         env:
           VITE_TURNSTILE_SITE_KEY: ${{ env.VITE_TURNSTILE_SITE_KEY }}
           VITE_API_BASE: ${{ env.VITE_API_BASE }}
+          VITE_FIREBASE_API_KEY: ${{ vars.VITE_FIREBASE_API_KEY }}
+          VITE_FIREBASE_AUTH_DOMAIN: ${{ vars.VITE_FIREBASE_AUTH_DOMAIN }}
+          VITE_FIREBASE_PROJECT_ID: ${{ vars.VITE_FIREBASE_PROJECT_ID }}
+          VITE_FIREBASE_STORAGE_BUCKET: ${{ vars.VITE_FIREBASE_STORAGE_BUCKET }}
+          VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ vars.VITE_FIREBASE_MESSAGING_SENDER_ID }}
+          VITE_FIREBASE_APP_ID: ${{ vars.VITE_FIREBASE_APP_ID }}
         run: |
           set -euo pipefail
           if [ -z "${VITE_TURNSTILE_SITE_KEY:-}" ]; then
             echo "::error::No Turnstile site key from Terraform; /sandbox could not create a workspace."
             exit 1
           fi
+
+          # Fatal rather than a warning. The build succeeds without these and
+          # ships a dashboard whose every sign-in button fails at runtime - a
+          # deploy that looks green and is not.
+          missing=""
+          for name in VITE_FIREBASE_API_KEY VITE_FIREBASE_AUTH_DOMAIN VITE_FIREBASE_PROJECT_ID                       VITE_FIREBASE_APP_ID; do
+            [ -z "${!name:-}" ] && missing="$missing $name"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Missing Firebase build variables on the dev environment:$missing"
+            exit 1
+          fi
+
+          # Guards against the one mistake that would be invisible until a user
+          # tried to sign in: pointing a dev build at the prod Firebase project.
+          if [ "$VITE_FIREBASE_PROJECT_ID" != "agentdisk-dev" ]; then
+            echo "::error::dev must build against Firebase project agentdisk-dev, got $VITE_FIREBASE_PROJECT_ID"
+            exit 1
+          fi
+
           npm run build
 
       # No apply-tf-outputs.mjs step here, unlike the API: the dashboard is

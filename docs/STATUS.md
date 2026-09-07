@@ -19,8 +19,8 @@ empty and `app.agentdisk.io` does not resolve. That is deliberate and unchanged:
 dev gets proven first.
 
 ```
-apps/api    370 tests across 25 files · typecheck clean · lint clean
-apps/web    111 modules · build clean
+apps/api    441 tests across 28 files · typecheck clean · lint clean
+apps/web    6 tests · 111 modules · build clean
 Worker      226 KiB gzipped, against Cloudflare's 1 MB limit
 ```
 
@@ -125,8 +125,9 @@ dashboard, which is the actual risk that item tracks.
 
 | Claim | How |
 |---|---|
-| 370 tests | `npx vitest run` in `apps/api` |
+| 441 tests | `npx vitest run` in `apps/api` |
 | Typecheck, lint | `npm run typecheck`, `npm run lint` |
+| 6 tests | `npm test` in `apps/web` |
 | 111 modules | `npm run build` in `apps/web` |
 | Bundle size | `npx wrangler deploy --dry-run` |
 | Presigned round-trip | Real 2 MB file, PUT to R2, `complete`, download, SHA-256 compared |

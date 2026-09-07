@@ -121,6 +121,16 @@ were not touched. See [002](backlog/002-reconcile-brand-drift.md).
   cannot log in and — because the endpoint is 501 — cannot be repaired through
   the API either. `test/staff-crypto.test.ts` pins the script's literal output
   against the Worker's verifiers so that divergence fails a build instead.
+- **A dialog moves focus once, when it opens.** `Modal` and `Drawer` had
+  `onClose` in the dependency array of the effect that focuses a field. Every
+  call site passes an inline arrow, and the parent re-renders on each keystroke
+  because it owns the field's state, so the effect re-ran per character and
+  re-focused the first focusable element in the dialog. That is the header's
+  close button, so typing one character into any dialog in the product threw
+  focus onto Close and the next character went nowhere. Handlers that only need
+  to be *current* belong in a ref, never in a dependency array. And 'first
+  focusable' is the wrong target regardless: it opens every dialog with
+  'dismiss' selected.
 - **Clear inbound foreign keys before deleting a subtree.** Within one statement
   SQLite deletes rows in arbitrary order and checks foreign keys immediately, so
   a self-referencing tree (`folders.parent_folder_id`) or one referenced from
@@ -183,7 +193,7 @@ provenance), `ApiKeyDisplay` (show-once), `PermissionSelector` (least privilege)
 | 007 | [Browser-verify the screens](backlog/007-browser-verify-screens.md) | Open — 4 of 31 rendered, no state variants |
 | 008 | [Backend: D1, R2, REST, MCP](backlog/008-backend.md) | Done — REST, MCP and Firebase auth all shipped |
 | 009 | [Wire screens to the API](backlog/009-wire-screens-to-api.md) | Done — no fixture data remains |
-| 010 | [Test suite](backlog/010-test-suite.md) | Open — 370 API tests; web and e2e still uncovered |
+| 010 | [Test suite](backlog/010-test-suite.md) | Open — 441 API tests, 6 web tests; e2e still uncovered |
 | 011 | [Rename `Worlflow.md`](backlog/011-rename-workflow-file.md) | Open — trivial |
 | 012 | [Put the project under git](backlog/012-initialise-git.md) | Done |
 | 013 | [Deploy the dashboard](backlog/013-deploy-dashboard.md) | Done — `app-dev.agentdisk.io` |
@@ -204,8 +214,8 @@ live deployment rather than inferred from the code — see
 person can follow.
 
 ```
-apps/api    370 tests across 25 files · typecheck clean · lint clean
-apps/web    111 modules · build clean
+apps/api    441 tests across 28 files · typecheck clean · lint clean
+apps/web    6 tests · 111 modules · build clean
 Worker      226 KiB gzipped, against Cloudflare's 1 MB limit
 ```
 

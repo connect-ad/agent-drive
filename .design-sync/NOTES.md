@@ -136,3 +136,26 @@ Backend deliberately untouched, per the user's "finish UI/UX first, sequentially
 - No automated tests and no browser-rendered visual verification: the screens are
   build-verified and spec-checked, not screenshot-verified.
 - `.thumbnail` still not imported (binary, not in the requested file list).
+
+## 2026-09-07 — First write back UP to Claude Design
+
+`components/Modal/Modal.jsx` was fixed in the design system and pushed upstream
+via `finalize_plan` + `write_files` (etag `1788566234313045` ->
+`1788779763462064`, 1808 -> 2862 bytes). All three copies are byte-identical
+again: Claude Design, `design-system/`, `apps/web/src/components/`.
+
+- **`write_files` needs a `plan_token` from this transport.** Calling it bare
+  returns "available only through the native Claude Design tool". Declare the
+  paths with `finalize_plan` first; it hands back both the token and the current
+  `base_etags` to pass as `if_match`.
+- **`_ds_bundle.js` was NOT regenerated and is now stale for Modal.** It carries
+  a Babel-compiled copy of every component plus a `sourceHashes` map
+  (`components/Modal/Modal.jsx` -> `49ddc570606a`, computed by Claude Design's
+  build, not reproducible here). Hand-editing it would produce a bundle whose
+  declared hash disagrees with its own contents, which is worse than a stale
+  one. Nothing in `apps/web` reads the bundle — the app imports the .jsx sources
+  through `src/components/index.js` — so only the Claude Design preview surface
+  still runs the old Modal, until the project rebuilds.
+- **Every design-system `.jsx` is pure ASCII.** Verified across all 32 before
+  writing; the fix keeps that, which also sidesteps the entity/escape mangling
+  recorded above. Match it in anything written upstream.

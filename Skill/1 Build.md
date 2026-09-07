@@ -33,6 +33,7 @@ npm install       # first time only
 npm run dev       # vite dev server
 npm run build     # vite build -> dist/, with sourcemaps
 npm run preview   # serve the built dist/
+npm test          # vitest run, jsdom (vitest.config.js, separate from vite.config.js)
 ```
 
 ```bash
@@ -143,7 +144,7 @@ grep -rn "from '\.\./components/[A-Z]" routes components-local
 grep -rnoE "'[^']*[0-9]+px[^']*'" routes components-local App.jsx
 ```
 
-Current state: **0 raw hex, 0 barrel bypass, 2 px literals.**
+Current state: **0 raw hex, 0 barrel bypass, 3 px literals.**
 
 ### Calibration on the px rule
 
@@ -157,8 +158,9 @@ borderBottom: '1px solid var(--line)'
 
 A `1px` hairline has no token — the space scale starts at 4px and is for
 spacing, not border width. So treat the rule as: **px must never carry spacing
-or sizing.** Hairline borders matching upstream's idiom are fine. The two
-current hits (`routes/ActivityLog.jsx`, `routes/Auth.jsx`) are both hairlines.
+or sizing.** Hairline borders matching upstream's idiom are fine. The three
+current hits (`routes/ActivityLog.jsx`, `routes/Auth.jsx`, `App.jsx` — the
+workspace switcher) are all hairlines.
 
 `app.css` additionally holds 6 px values the linter cannot see — container
 max-widths (`400px`, `1120px`), a fixed `26px` badge, a `1px` rule and an `8px`
@@ -216,8 +218,19 @@ creation asserts scope per ancestor as well as up front. When a mutation
 survives, establish which of those two it is before adding a test: strengthen
 the mutation until it removes the property entirely.
 
-`apps/web` still has **no tests** and the screens have never been rendered in a
-browser beyond four spot checks ([backlog 007](../backlog/007-browser-verify-screens.md),
+`apps/web` has **one test file**, `test/dialog-focus.test.jsx`, covering focus
+behaviour in `Modal` and `Drawer`. It exists because a focus bug made every
+dialog in the product unusable, and because nothing else could catch it: the
+build is clean either way and there is no web lint script.
+
+It types through `user.keyboard`, which delivers to `document.activeElement`,
+rather than into a named element. **That distinction is the test.** Typing
+straight into the field passes with the bug present, because it re-targets the
+same element every character; delivering to whatever currently has focus is what
+makes a stolen focus show up as `expected 'r' to be 'research-bot'`.
+
+The screens have still never been rendered in a browser beyond four spot checks
+([backlog 007](../backlog/007-browser-verify-screens.md),
 [backlog 010](../backlog/010-test-suite.md)).
 
 ---

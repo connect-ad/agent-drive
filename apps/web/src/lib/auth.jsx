@@ -26,7 +26,9 @@ import {
   signInWithEmailLink,
   verifyPasswordResetCode,
   confirmPasswordReset,
-  onIdTokenChanged
+  onIdTokenChanged,
+  updateProfile,
+  verifyBeforeUpdateEmail
 } from 'firebase/auth';
 import { auth, firebaseConfigured, googleProvider, githubProvider } from './firebase.js';
 
@@ -53,6 +55,8 @@ export function describeAuthError(error) {
     case 'auth/user-not-found':
     case 'auth/wrong-password':
       return GENERIC_SIGNIN_FAILURE;
+    case 'auth/requires-recent-login':
+      return 'For your security, sign out and sign back in before changing this.';
     case 'auth/too-many-requests':
       return 'Too many attempts. Wait a few minutes before trying again.';
     case 'auth/email-already-in-use':
@@ -80,6 +84,10 @@ export function describeAuthError(error) {
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(firebaseConfigured);
+  // Firebase mutates the User object in place, so a profile edit changes
+  // nothing React can see. This counter is what says 'the object you are
+  // already holding is different now'.
+  const [profileVersion, setProfileVersion] = useState(0);
 
   useEffect(() => {
     if (!auth) return undefined;
@@ -184,11 +192,36 @@ export function AuthProvider({ children }) {
         if (auth?.currentUser) await sendEmailVerification(auth.currentUser);
       },
 
+      /**
+       * The display name is stored in Firebase and nowhere else — the API reads
+       * it from the `name` claim rather than keeping its own copy — so this is
+       * the whole of the change, not the client half of one.
+       */
+      async updateDisplayName(displayName) {
+        if (!auth?.currentUser) throw new Error('not signed in');
+        await updateProfile(auth.currentUser, { displayName });
+        // Force a refresh so the claim the API reads is the new one, and bump
+        // the counter so anything showing the name re-renders.
+        await auth.currentUser.getIdToken(true);
+        setProfileVersion(v => v + 1);
+      },
+
+      /**
+       * `verifyBeforeUpdateEmail`, not `updateEmail`: the address only moves
+       * once the person has proved they can read mail at it, so a typo cannot
+       * lock anybody out of their own account. The API picks the new address up
+       * from the token on the next request — user-lookup.ts already syncs it.
+       */
+      async requestEmailChange(email) {
+        if (!auth?.currentUser) throw new Error('not signed in');
+        await verifyBeforeUpdateEmail(auth.currentUser, email);
+      },
+
       async signOut() {
         if (auth) await fbSignOut(auth);
       }
     }),
-    [user, loading]
+    [user, loading, profileVersion]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

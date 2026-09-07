@@ -121,6 +121,11 @@ export function createApiClient(getToken) {
         workspaceId
       }),
 
+    getBilling: workspaceId => request('/v1/billing', { workspaceId }),
+    /** Resolves to { url } — a one-time link into Stripe's hosted portal. */
+    createPortalSession: workspaceId =>
+      request('/v1/billing/portal-session', { method: 'POST', workspaceId }),
+
     listFolders: workspaceId => request('/v1/folders', { workspaceId }),
     createFolder: (workspaceId, path) =>
       request('/v1/folders', { method: 'POST', body: { path }, workspaceId }),

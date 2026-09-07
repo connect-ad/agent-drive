@@ -346,74 +346,125 @@ export function PrivacyTab({ soleOwnerOf = 0 }) {
 
 /* ------------------------------ 8.25 Billing ------------------------------ */
 
-// Billing is not wired up yet.
-const INVOICES = [];
+/**
+ * Portal depth (14 PART 29.1). Everything past "who is this account" happens on
+ * Stripe's own hosted page — cards, plan changes, invoices, cancellation.
+ *
+ * This screen therefore has exactly one button and no forms. That is the point,
+ * not a gap: a card form here would be a PCI surface, and a plan-change UI
+ * would be a second place for pricing to drift out of step with Stripe.
+ */
+const loadBilling = (api, workspaceId) => api.getBilling(workspaceId);
 
-export function BillingTab({ hasPaymentMethod = true, overLimitOnDowngrade = true }) {
-  const [dialog, setDialog] = useState(null);
+const STATUS_TONE = { active: 'ok', past_due: 'warn', canceled: 'danger' };
+const STATUS_LABEL = { active: 'Active', past_due: 'Payment overdue', canceled: 'Canceled' };
 
-  const columns = [
-    { key: 'date', header: 'Date', primary: true, width: 150 },
-    { key: 'period', header: 'Period', width: 150 },
-    { key: 'amount', header: 'Amount', align: 'right', width: 120, mono: true },
-    { key: 'status', header: 'Status', width: 120, render: r => <Badge tone="ok" dot>{r.status}</Badge> },
-    { key: 'act', header: '', width: 110, render: () => <Button size="sm" variant="secondary">Download</Button> }
-  ];
+export function BillingTab() {
+  const { api, workspaceId, role } = useWorkspace();
+  const { status, data, error, reload } = useResource(loadBilling);
+  const [opening, setOpening] = useState(false);
+  const [openError, setOpenError] = useState(null);
+
+  const billing = data?.billing;
+  const isOwner = role === 'owner';
+
+  const openPortal = async () => {
+    setOpening(true); setOpenError(null);
+    try {
+      const { url } = await api.createPortalSession(workspaceId);
+      // Same tab rather than a popup: this is a checkout-shaped flow, and a
+      // blocked popup here reads as a broken button.
+      window.location.assign(url);
+    } catch (err) {
+      setOpenError(`${err.message}${err.requestId ? ` (request ${err.requestId})` : ''}`);
+      setOpening(false);
+    }
+  };
+
+  if (status === 'loading') {
+    return <Panel title="Billing"><p className="ad-meta">Loading billing…</p></Panel>;
+  }
+
+  if (status === 'failed') {
+    return (
+      <Alert tone="danger" title="Could not load billing" actions={<Button size="sm" onClick={reload}>Try again</Button>}>
+        {error?.message}{error?.requestId ? ` (request ${error.requestId})` : ''}
+      </Alert>
+    );
+  }
 
   return (
     <>
+      {billing?.writesBlocked ? (
+        <Alert
+          tone={billing.status === 'past_due' ? 'warn' : 'danger'}
+          title={
+            billing.status === 'past_due'
+              ? 'There is an unpaid invoice on this account'
+              : 'This subscription has ended'
+          }
+          actions={isOwner ? <Button size="sm" onClick={openPortal} loading={opening}>Manage billing</Button> : null}
+        >
+          {/* Said plainly, because the alternative is somebody discovering it
+              on a failed upload and assuming their data is gone. */}
+          New uploads are paused. Everything already stored stays readable and
+          downloadable — nothing has been deleted.
+        </Alert>
+      ) : null}
+
+      {openError ? <div role="alert"><Alert tone="danger" title={openError} /></div> : null}
+
       <Panel
-        title="Current plan"
-        subtitle="Pro — $20 per month"
-        actions={<Badge tone="accent">Pro</Badge>}
-        footer={
-          <>
-            <Button variant="secondary" iconRight={<Icon name="external" size={13} />}>Manage billing</Button>
-            <Button variant="ghost" onClick={() => setDialog('downgrade')}>Change plan</Button>
-          </>
-        }
-      >
-        {!hasPaymentMethod ? (
-          <Alert tone="warn" title="Add a payment method to upgrade" actions={<Button size="sm">Add payment method</Button>}>
-            You can keep using the Free plan indefinitely without one.
-          </Alert>
-        ) : (
-          <dl className="dl">
-            <dt>Next invoice</dt><dd>1 Apr 2026 — $20.00</dd>
-            <dt>Payment method</dt><dd className="ad-mono-sm">Not set up</dd>
-            <dt>Billing email</dt><dd>—</dd>
-          </dl>
-        )}
-      </Panel>
-
-      <Panel flush title="Invoices">
-        <DataTable columns={columns} rows={INVOICES} rowKey="id" />
-      </Panel>
-
-      <Modal
-        open={dialog === 'downgrade'}
-        title="Change plan"
-        tone={overLimitOnDowngrade ? 'danger' : 'accent'}
-        mark={<Icon name="billing" size={16} />}
-        onClose={() => setDialog(null)}
-        footer={
-          <>
-            <Button variant="secondary" onClick={() => setDialog(null)}>Cancel</Button>
-            <Button variant={overLimitOnDowngrade ? 'danger' : 'primary'} onClick={() => setDialog(null)}>
-              Downgrade to Free
+        title="Plan"
+        actions={
+          isOwner ? (
+            <Button variant="secondary" onClick={openPortal} loading={opening}>
+              {billing?.configured ? 'Manage billing' : 'Set up billing'}
             </Button>
-          </>
+          ) : null
         }
       >
-        {overLimitOnDowngrade ? (
-          <Alert tone="warn" title="Your usage exceeds the Free plan's limits">
-            You can downgrade, but new uploads will be blocked until you&rsquo;re back under the limit.
-            Existing files stay readable.
-          </Alert>
-        ) : (
-          <p className="ad-small">Your current usage fits within the Free plan.</p>
-        )}
-      </Modal>
+        <dl className="kv">
+          <dt>Plan</dt>
+          <dd><Badge tone="accent">{billing?.plan ?? '—'}</Badge></dd>
+
+          <dt>Status</dt>
+          <dd>
+            <Badge tone={STATUS_TONE[billing?.status] ?? undefined} dot>
+              {STATUS_LABEL[billing?.status] ?? billing?.status ?? '—'}
+            </Badge>
+          </dd>
+
+          <dt>Billing email</dt>
+          <dd>{billing?.ownerEmail ?? '—'}</dd>
+
+          <dt>Payment method</dt>
+          {/* We genuinely do not know - the card lives on Stripe and this
+              product never sees it. Claiming otherwise would be a guess. */}
+          <dd className="ad-meta">
+            {billing?.subscribed ? 'Managed on Stripe' : 'No active subscription'}
+          </dd>
+        </dl>
+
+        {!isOwner ? (
+          <p className="ad-meta" style={{ marginTop: 'var(--s-5)' }}>
+            Only the account owner can change billing. Ask {billing?.ownerEmail ?? 'them'} if
+            something needs updating.
+          </p>
+        ) : null}
+      </Panel>
+
+      <Panel title="Invoices">
+        <EmptyState
+          compact
+          icon={<Icon name="file" size={19} />}
+          title="Invoices live on Stripe"
+          actions={isOwner ? <Button size="sm" variant="secondary" onClick={openPortal} loading={opening}>Open billing portal</Button> : null}
+        >
+          Stripe keeps the record of every charge, receipt and invoice. Rather than copy that
+          here and risk the two disagreeing, this sends you to the source.
+        </EmptyState>
+      </Panel>
     </>
   );
 }

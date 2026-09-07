@@ -17,6 +17,7 @@ import { createWorkspace } from "./routes/create-workspace";
 import { createWorkspaceForUser, listWorkspaces } from "./routes/workspaces";
 import { createAgent, deleteAgent, getAgent, listAgents, patchAgent } from "./routes/agents";
 import { createKey, listKeys, revokeKey } from "./routes/keys";
+import { handleMcp } from "./mcp/server";
 import { listActivity } from "./routes/activity";
 import { createPortalSession, getBilling } from "./routes/billing";
 import { handleStripeWebhook } from "./routes/stripe-webhook";
@@ -276,6 +277,21 @@ export default {
           secretKey: env.STRIPE_SECRET_KEY,
           webhookSecret: env.STRIPE_WEBHOOK_SECRET,
           now: Date.now(),
+        });
+      }
+
+      // MCP, on the same Worker as REST (14.2). Agents connect here with the
+      // same API key they would use for REST, and every tool runs behind the
+      // same authorization chain - which is the point: two surfaces that share
+      // one implementation cannot disagree about what they allow.
+      if (url.pathname === "/mcp" || url.pathname === "/v1/mcp") {
+        return await handleMcp(request, {
+          db: env.DB,
+          files: env.FILES,
+          signing: () => signingConfig(env),
+          requestId: id,
+          waitUntil: (promise) => ctx.waitUntil(promise),
+          firebase: null,
         });
       }
 

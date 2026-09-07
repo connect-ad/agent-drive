@@ -29,7 +29,7 @@ const RECENT_FILES = [
   { id: 5, name: 'transcript-03.txt', meta: '/interviews', type: 'text/plain', size: '64 KB', modified: '3 Mar 2026', agent: true }
 ];
 
-const QUICK_START = `curl -X POST https://api.agentdrive.ai/v1/files \\
+const QUICK_START = `curl -X POST https://api.agentdisk.io/v1/files \\
   -H "Authorization: Bearer ad_live_••••••••••••" \\
   -d '{"path":"notes.md","size":128}'`;
 

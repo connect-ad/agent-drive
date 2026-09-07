@@ -2,7 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import { IconButton, Icon } from '../components/index.js';
 
 /**
- * Right-side drawer. NOT part of the AgentDrive design system — the library has
+ * Right-side drawer. NOT part of the AgentDisk design system — the library has
  * no Drawer (see docs/design/03 §7.2 "Specified but NOT built"), yet §8.10 File
  * Details requires one. Styled only with design-system tokens; should be
  * upstreamed into the design system rather than forked further.

@@ -1,4 +1,4 @@
-# AgentDrive — Implementation Plan
+# AgentDisk — Implementation Plan
 
 Planning artifact for `docs/design/08-claude-code-prompt.md`. Short by design;
 updated as phases complete. The design documents remain the authority — this
@@ -226,16 +226,8 @@ signing credential exists.
 
 ### Blocking the presigned round-trip
 
-`R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` are absent in dev. Two ways to fix
-it, and the choice is a security one rather than a convenience one:
-
-1. Set `manage_r2_signing_token = true`. Terraform then creates the token, but
-   it needs Account -> API Tokens: Edit on the deploy token, which lets that
-   token mint any credential in the account.
-2. Create the token by hand once per environment (R2 -> Manage API tokens,
-   Object Read & Write, scoped to that environment's bucket) and put the pair
-   in the GitHub Environment. No escalation.
-
-The deploy accepts either and fails when it finds neither - warning in dev,
-fatal in prod, since a Worker that looks healthy and fails on a customer's
-first upload is the worse outcome.
+`R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` are absent in dev, so those two
+routes refuse while everything else works. It needs a human decision, and the
+decision is a security one rather than a convenience one —
+[backlog 014](../backlog/014-r2-signing-credential.md) holds both options and
+what each costs.

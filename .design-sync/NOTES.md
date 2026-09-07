@@ -16,7 +16,7 @@
   (searched to depth 5).
 - 2026-09-05 (2nd run): Repo now contains content, but it is a **specification
   package**, not a design system: `Worlflow.md` + `docs/design/00..10-*.md`
-  (AgentDrive — serverless AI-agent storage platform). Still NO `package.json`,
+  (AgentDisk — serverless AI-agent storage platform). Still NO `package.json`,
   no lockfile, no source, no `dist/`, no `.storybook/`, no `*.stories.*`.
 - `/design-sync` therefore cannot run: the converter bundles a repo's compiled
   `dist/`, and nothing here is built. Shape detection remains unrun; `"shape"`
@@ -111,7 +111,7 @@ Backend deliberately untouched, per the user's "finish UI/UX first, sequentially
    the Claude Design system** so the design agent can use it too.
 4. **Tooltip and dark mode stay descoped.** `.tip` gives styling but no behaviour;
    dark mode is deliberately absent ("the app itself is never dark").
-5. **Docs nav is external** (docs.agentdrive.dev) per §8.31 — not an in-app route.
+5. **Docs nav is external** (docs.agentdisk.io) per §8.31 — not an in-app route.
 6. `state` props on screens keep every spec'd state (loading / empty / error /
    quota-warn / lockout / no-results) reachable before the API exists. Delete the
    prop when wiring real data.

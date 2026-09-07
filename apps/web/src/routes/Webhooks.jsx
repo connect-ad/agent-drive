@@ -19,7 +19,7 @@ import {
 const EVENTS = ['file.created', 'file.updated', 'file.deleted', 'transform.completed'];
 
 const HOOKS = [
-  { id: 'w1', url: 'https://acme.io/webhooks/agentdrive', events: ['file.created', 'file.updated'], status: 'active', last: '4 minutes ago', ok: true },
+  { id: 'w1', url: 'https://acme.io/webhooks/agentdisk', events: ['file.created', 'file.updated'], status: 'active', last: '4 minutes ago', ok: true },
   { id: 'w2', url: 'https://ops.acme.io/hooks/ingest', events: ['file.created'], status: 'failing', last: '2 hours ago', ok: false, failures: 4 }
 ];
 
@@ -161,7 +161,7 @@ export default function Webhooks({ state = 'populated' }) {
           required
           mono
           type="url"
-          placeholder="https://your-service.com/webhooks/agentdrive"
+          placeholder="https://your-service.com/webhooks/agentdisk"
           hint="HTTPS only. We re-validate the destination server-side before sending anything."
         />
         <div>
@@ -194,7 +194,7 @@ export default function Webhooks({ state = 'populated' }) {
         }
       >
         <Alert tone="warn" title="Copy this now — you won't be able to see it again">
-          Use it to verify that deliveries actually came from AgentDrive.
+          Use it to verify that deliveries actually came from AgentDisk.
         </Alert>
         <ApiKeyDisplay revealed secret={SECRET} />
       </Modal>
@@ -202,7 +202,7 @@ export default function Webhooks({ state = 'populated' }) {
       <ConfirmModal
         open={dialog === 'delete'}
         title="Delete this webhook endpoint?"
-        description={`AgentDrive will stop sending events to ${target ? target.url : 'this endpoint'}.`}
+        description={`AgentDisk will stop sending events to ${target ? target.url : 'this endpoint'}.`}
         confirmLabel="Delete"
         onClose={() => setDialog(null)}
         onConfirm={() => { setDialog(null); setToast('Endpoint deleted'); }}

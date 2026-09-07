@@ -1,4 +1,4 @@
-# AgentDrive dashboard SPA.
+# AgentDisk dashboard SPA.
 #
 # Served as a Workers static-assets Worker, not a Cloudflare Pages project — see
 # the WEB section of infra/terraform/modules/agentdisk-stack/main.tf for why,

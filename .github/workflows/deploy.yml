@@ -231,8 +231,12 @@ jobs:
       - name: Push Turnstile and R2 credentials
         env:
           TF_DIR: infra/terraform
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          # R2_FILES_*, not R2_*, so these can never be read as the state
+          # bucket's R2_STATE_* credentials sitting beside them at repo level.
+          # Those two are the most dangerous pair in the system to confuse: one
+          # signs customer file URLs, the other unlocks Terraform state.
+          R2_FILES_ACCESS_KEY_ID: ${{ secrets.R2_FILES_ACCESS_KEY_ID }}
+          R2_FILES_SECRET_ACCESS_KEY: ${{ secrets.R2_FILES_SECRET_ACCESS_KEY }}
         run: |
           set -euo pipefail
 
@@ -243,11 +247,14 @@ jobs:
             echo "Set $secret_name from terraform output $output_name"
           }
 
+          # The GitHub secret and the Worker secret are named separately on
+          # purpose: inside the Worker there is only one bucket, so R2_* is
+          # unambiguous there, while in the repo it would sit next to R2_STATE_*.
           push_env() {
-            local secret_name="$1"
-            printf '%s' "${!secret_name}" |
+            local env_name="$1" secret_name="$2"
+            printf '%s' "${!env_name}" |
               (cd apps/api && npx wrangler secret put "$secret_name" --env "$WORKSPACE")
-            echo "Set $secret_name from the $ENVIRONMENT_NAME environment"
+            echo "Set $secret_name from $env_name in the $ENVIRONMENT_NAME environment"
           }
 
           # Length only. Capturing the output to compare it would put a live
@@ -278,24 +285,24 @@ jobs:
           # secret. Blocking every dev deploy on a credential no shipped route
           # uses yet would buy nothing and stop the work.
           push_r2() {
-            local output_name="$1" secret_name="$2"
+            local output_name="$1" secret_name="$2" env_name="$3"
             if have_output "$output_name"; then
               push_output "$output_name" "$secret_name"
-            elif [ -n "${!secret_name:-}" ]; then
-              push_env "$secret_name"
+            elif [ -n "${!env_name:-}" ]; then
+              push_env "$env_name" "$secret_name"
             elif [ "$WORKSPACE" = "dev" ]; then
-              echo "::warning::No $secret_name for dev. Presigned upload and download URLs will refuse until it exists; everything else deploys."
+              echo "::warning::No $env_name for dev. Presigned upload and download URLs will refuse until it exists; everything else deploys."
               MISSING_R2=1
             else
-              echo "::error::No $secret_name available. Either set manage_r2_signing_token = true in infra/terraform (this grants the deploy token API-token minting rights), or add $secret_name to the $ENVIRONMENT_NAME environment from an R2 API token scoped Object Read and Write to this environment's bucket."
+              echo "::error::No $env_name available. Either set manage_r2_signing_token = true in infra/terraform (this grants the deploy token API-token minting rights), or add $env_name to the $ENVIRONMENT_NAME environment from an R2 API token scoped Object Read and Write to this environment's bucket."
               exit 1
             fi
           }
 
           MISSING_R2=0
 
-          push_r2 r2_access_key_id     R2_ACCESS_KEY_ID
-          push_r2 r2_secret_access_key R2_SECRET_ACCESS_KEY
+          push_r2 r2_access_key_id     R2_ACCESS_KEY_ID     R2_FILES_ACCESS_KEY_ID
+          push_r2 r2_secret_access_key R2_SECRET_ACCESS_KEY R2_FILES_SECRET_ACCESS_KEY
 
           if [ "$MISSING_R2" = "1" ]; then
             echo "R2_SIGNING_CONFIGURED=false" >> "$GITHUB_ENV"

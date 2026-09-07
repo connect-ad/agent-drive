@@ -2,7 +2,7 @@
 # secrets, so no account-identifying value is committed to this public repo.
 
 variable "account_id" {
-  description = "Cloudflare account ID that owns all AgentDrive resources."
+  description = "Cloudflare account ID that owns all AgentDisk resources."
   type        = string
 
   validation {

@@ -1,9 +1,9 @@
 {
-  "name": "@agentdrive/web",
+  "name": "@agentdisk/web",
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "AgentDrive dashboard SPA (Workers static assets). Screens per docs/design/03 PART 8.",
+  "description": "AgentDisk dashboard SPA (Workers static assets). Screens per docs/design/03 PART 8.",
   "scripts": {
     "dev": "vite",
     "build": "vite build",

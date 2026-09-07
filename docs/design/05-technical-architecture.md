@@ -1,4 +1,4 @@
-# AgentDrive — Technical Architecture, Database, R2 Storage, REST API, MCP API
+# AgentDisk — Technical Architecture, Database, R2 Storage, REST API, MCP API
 ### PART 10–14 of the AgentStorage-Inspired Platform Design
 
 All content is **PROPOSAL** unless marked otherwise.
@@ -439,7 +439,7 @@ MIME type is trusted from the client at creation but **never used for any author
 
 ## PART 13 — REST API Specification
 
-**Base URL:** `https://api.agentdrive.dev/v1`
+**Base URL:** `https://api.agentdisk.io/v1` (dev: `https://api-dev.agentdisk.io/v1` — `12-deployment-roadmap-agentdisk-io.md`'s flat `-dev`-suffix naming standard)
 **Auth:** `Authorization: Bearer <token>` — either a human session token (dashboard-issued, short-lived, refreshed via httpOnly cookie) or an agent API key (`ask_live_...` / `ask_test_...`, PART 16.3).
 **Content type:** `application/json` except direct R2 upload/download, which go straight to R2 URLs.
 **Error envelope (uniform across every endpoint):**
@@ -542,7 +542,7 @@ Response `201`:
 
 ### 14.2 MCP Endpoint & Transport
 
-`POST https://mcp.agentdrive.dev/mcp` — Streamable HTTP transport (the current MCP spec's recommended transport for hosted/remote servers, superseding the older HTTP+SSE transport), JSON-RPC 2.0 message framing. Authentication: `Authorization: Bearer ask_live_...` — the same API key format and the same key table as REST (14.1's shared-core decision made concrete). Tool discovery: standard MCP `tools/list` method, returning the JSON schemas in 14.4 filtered to only the tools the presented key's scope actually permits (an agent never even sees a tool it can't call — reduces both confusion and prompt-injection attack surface, echoing AgentStorage's own defensive-docs instinct from PART 2.7/4.3). Tool execution: standard MCP `tools/call`.
+`POST https://mcp.agentdisk.io/mcp` (dev: `https://mcp-dev.agentdisk.io/mcp`) — Streamable HTTP transport (the current MCP spec's recommended transport for hosted/remote servers, superseding the older HTTP+SSE transport), JSON-RPC 2.0 message framing. Authentication: `Authorization: Bearer ask_live_...` — the same API key format and the same key table as REST (14.1's shared-core decision made concrete). Tool discovery: standard MCP `tools/list` method, returning the JSON schemas in 14.4 filtered to only the tools the presented key's scope actually permits (an agent never even sees a tool it can't call — reduces both confusion and prompt-injection attack surface, echoing AgentStorage's own defensive-docs instinct from PART 2.7/4.3). Tool execution: standard MCP `tools/call`.
 
 ### 14.3 Authorization, Tenant Isolation, Rate Limiting, Logging
 

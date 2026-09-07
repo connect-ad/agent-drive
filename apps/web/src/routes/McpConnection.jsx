@@ -16,7 +16,7 @@ import {
  * States: no-key | connected-never-used | connected-active
  */
 
-const ENDPOINT = 'https://mcp.agentdrive.ai/v1';
+const ENDPOINT = 'https://mcp.agentdisk.io/v1';
 const REAL_KEY = 'ad_live_7fQ2xK9mR4pL8vN3wY6zB1sT5uJ0hG';
 const PLACEHOLDER = '<YOUR_API_KEY>';
 
@@ -45,7 +45,7 @@ export default function McpConnection({ state = 'connected-active' }) {
 
   const config = `{
   "mcpServers": {
-    "agentdrive": {
+    "agentdisk": {
       "url": "${ENDPOINT}",
       "headers": {
         "Authorization": "Bearer ${key}"

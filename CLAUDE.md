@@ -1,4 +1,4 @@
-# AgentDrive
+# AgentDisk
 
 Serverless file storage built for AI agents. Files, folders and metadata over
 REST and MCP — scoped credentials, hard-capped pricing, no servers to run.
@@ -143,13 +143,13 @@ Claude Design project `agent-storage-mcp` · `d311bfd0-9751-4a9b-84f4-b33e7a0937
 
 | Holds | Detail |
 |---|---|
-| 32 components | 9 primitives, 9 structure, 5 feedback, 1 developer, 8 AgentDrive-specific |
+| 32 components | 9 primitives, 9 structure, 5 feedback, 1 developer, 8 AgentDisk-specific |
 | 98 tokens | `styles.css` — colour, type, 4px space scale, radius, elevation, motion |
 | 26 preview cards | `card.html` per component; these stay upstream, not vendored |
 | Runtime bundle | `_ds_bundle.js` — 2083 lines, exposes `window.AgentStorageMcp_d311bf` |
 | Lint contract | `_adherence.oxlintrc.json` — prop validation, token enforcement |
 
-The AgentDrive-specific components carry the product thesis: `FileCell` (agent
+The AgentDisk-specific components carry the product thesis: `FileCell` (agent
 provenance), `ApiKeyDisplay` (show-once), `PermissionSelector` (least privilege),
 `McpToolList` (per-tool scopes), `ActivityRow` (agent vs human actors).
 
@@ -157,7 +157,7 @@ provenance), `ApiKeyDisplay` (show-once), `PermissionSelector` (least privilege)
 
 | # | Document | Covers |
 |---|---|---|
-| 1 | [Build](Skill/1%20Build.md) | Toolchain, run/build commands, the expected build baseline, barrel regeneration, adherence checks and their calibration, why there is no test or deploy step yet |
+| 1 | [Build](Skill/1%20Build.md) | Toolchain, run/build/test commands for both apps, the expected build baseline, barrel regeneration, adherence checks and their calibration, mutation testing, and how to read a failed pipeline run |
 
 ### Backlog — [backlog/](backlog/)
 
@@ -169,13 +169,15 @@ provenance), `ApiKeyDisplay` (show-once), `PermissionSelector` (least privilege)
 | 004 | [MVP-0 screens](backlog/004-mvp0-screens.md) | Done |
 | 005 | [MVP-1 screens](backlog/005-mvp1-screens.md) | Done |
 | 006 | [Upstream the Drawer](backlog/006-upstream-drawer.md) | Open — design-system gap |
-| 007 | [Browser-verify the screens](backlog/007-browser-verify-screens.md) | Open — never rendered |
-| 008 | [Backend: D1, R2, REST, MCP](backlog/008-backend.md) | Open — blocks any deploy |
-| 009 | [Wire screens to the API](backlog/009-wire-screens-to-api.md) | Open — blocked by 008 |
-| 010 | [Test suite](backlog/010-test-suite.md) | Open |
+| 007 | [Browser-verify the screens](backlog/007-browser-verify-screens.md) | Open — 4 of 31 rendered, no state variants |
+| 008 | [Backend: D1, R2, REST, MCP](backlog/008-backend.md) | Open — REST storage core built; MCP and sessions remain |
+| 009 | [Wire screens to the API](backlog/009-wire-screens-to-api.md) | Open — carries an unresolved scope-naming conflict |
+| 010 | [Test suite](backlog/010-test-suite.md) | Open — `apps/api` covered; web and e2e are not |
 | 011 | [Rename `Worlflow.md`](backlog/011-rename-workflow-file.md) | Open — trivial |
 | 012 | [Put the project under git](backlog/012-initialise-git.md) | Done |
 | 013 | [Deploy the dashboard](backlog/013-deploy-dashboard.md) | Done — `app-dev.agentdisk.io` |
+| 014 | [R2 signing credential](backlog/014-r2-signing-credential.md) | Done — `R2_FILES_*` set on the `dev` environment |
+| 015 | [Rename in the design system](backlog/015-rename-in-design-system.md) | Open — upstream change, then re-import |
 
 ---
 
@@ -255,12 +257,21 @@ Doc numbering: `docs/design/11-backend-implementation-prompt.md` is referenced b
 docs 12 and 13, and **doc 08 is that prompt under its original number** — no
 document is actually missing. See [the implementation plan](docs/IMPLEMENTATION_PLAN.md).
 
-Two known deviations from the design docs, both deliberate and both requiring a
-doc correction under the precedence rule: doc 07 PART 18.4 assigns `app.` to
+One known deviation from the design docs, deliberate and requiring a doc
+correction under the precedence rule: doc 07 PART 18.4 assigns `app.` to
 Cloudflare Pages, but the dashboard ships as a Workers static-assets Worker
-([013](backlog/013-deploy-dashboard.md)); and the live landing page still shows
-pre-rename domains (`api.agentdrive.ai`, `docs.agentdrive.dev`) that doc 12
-renamed to `agentdisk.io`.
+([013](backlog/013-deploy-dashboard.md)).
+
+**The product is AgentDisk, matching `agentdisk.io`.** It was written as
+"AgentDrive" throughout until Sept 2026; that name is gone from every file this
+repo owns, along with the pre-rename `agentdrive.ai`/`agentdrive.dev` domains
+the landing page still advertised. Where a design doc contrasts the old domain
+with the new one to explain *why* something changed, the old name is left
+standing — rewriting those sentences would destroy the very distinction they
+exist to draw. The one place still saying "AgentDrive" is
+[`design-system/`](design-system/), which is a byte-verified mirror and must be
+fixed upstream in Claude Design and re-imported — see
+[015](backlog/015-rename-in-design-system.md).
 
 Next: an R2 signing credential, which is the only thing between here and
 roadmap step 27's presigned round-trip; then the human half of

@@ -16,9 +16,9 @@ import {
  */
 
 const EVENTS = [
-  { id: 'e1', action: 'file.upload', actor: 'research-assistant', actorType: 'agent', resource: '/research/2026-q1/market-sizing.pdf', time: '12m', status: 'ok', ip: '203.0.113.42', client: 'agentdrive-python/0.4.1', req: 'req_8Kq2xR4mN7' },
+  { id: 'e1', action: 'file.upload', actor: 'research-assistant', actorType: 'agent', resource: '/research/2026-q1/market-sizing.pdf', time: '12m', status: 'ok', ip: '203.0.113.42', client: 'agentdisk-python/0.4.1', req: 'req_8Kq2xR4mN7' },
   { id: 'e2', action: 'mcp.call', actor: 'research-assistant', actorType: 'agent', resource: 'search_files', time: '14m', status: 'ok', detail: 'Query: competitor pricing · 8 results', ip: '203.0.113.42', client: 'claude-desktop/1.9.0 (mcp)', req: 'req_3fL9wQ2bV6' },
-  { id: 'e3', action: 'auth.denied', actor: 'report-writer', actorType: 'agent', resource: 'delete_file', time: '1h', status: 'denied', detail: 'Missing scope files:delete · rejected before reaching storage', ip: '198.51.100.7', client: 'agentdrive-node/0.3.0', req: 'req_5xT1yH8kD3' },
+  { id: 'e3', action: 'auth.denied', actor: 'report-writer', actorType: 'agent', resource: 'delete_file', time: '1h', status: 'denied', detail: 'Missing scope files:delete · rejected before reaching storage', ip: '198.51.100.7', client: 'agentdisk-node/0.3.0', req: 'req_5xT1yH8kD3' },
   { id: 'e4', action: 'key.create', actor: 'Dana Okafor', actorType: 'user', resource: 'report-writer key', time: '3h', status: 'ok', ip: '203.0.113.9', client: 'Chrome/141 on Windows', req: 'req_9bN4jK6pW2' },
   { id: 'e5', action: 'file.delete', actor: 'Dana Okafor', actorType: 'user', resource: '/archive/old-deck.pdf', time: 'Yesterday', status: 'ok', detail: 'Recoverable until 4 April 2026', ip: '203.0.113.9', client: 'Chrome/141 on Windows', req: 'req_2mC7vB5nS8' }
 ];

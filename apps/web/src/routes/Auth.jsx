@@ -21,7 +21,7 @@ function AuthShell({ title, subtitle, children, footer, legal }) {
       <div className="auth__inner">
         <div className="auth__brand">
           <span className="auth__logo" aria-hidden="true">A</span>
-          <span className="auth__wordmark">AgentDrive</span>
+          <span className="auth__wordmark">AgentDisk</span>
         </div>
         <div className="auth__card">
           <div>

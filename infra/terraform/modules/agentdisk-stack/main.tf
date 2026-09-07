@@ -1,4 +1,4 @@
-# AgentDrive per-environment stack.
+# AgentDisk per-environment stack.
 #
 # This module owns INFRASTRUCTURE ONLY. It deliberately contains no application
 # secret. DATABASE_ENCRYPTION_KEY / SESSION_SIGNING_KEY are pushed with

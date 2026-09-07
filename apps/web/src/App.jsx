@@ -45,7 +45,7 @@ export const NAV = [
     items: [
       { id: 'usage', label: 'Usage', icon: 'chart', path: '/usage' },
       { id: 'settings', label: 'Settings', icon: 'gear', path: '/settings' },
-      { id: 'docs', label: 'Documentation', icon: 'book', href: 'https://docs.agentdrive.dev', external: true }
+      { id: 'docs', label: 'Documentation', icon: 'book', href: 'https://docs.agentdisk.io', external: true }
     ]
   }
 ];

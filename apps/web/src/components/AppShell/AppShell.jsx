@@ -11,7 +11,7 @@ export function AppShell({
       <nav className="shell__nav" aria-label="Primary">
         <div className="shell__brand">
           <span className="shell__logo" aria-hidden="true">A</span>
-          <span className="shell__wordmark">AgentDrive</span>
+          <span className="shell__wordmark">AgentDisk</span>
         </div>
         {workspace ? (
           <div className="shell__ws">

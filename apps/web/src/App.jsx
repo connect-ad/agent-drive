@@ -20,6 +20,7 @@ import McpConnection from './routes/McpConnection.jsx';
 import Webhooks from './routes/Webhooks.jsx';
 import ActivityLog from './routes/ActivityLog.jsx';
 import RequireAuth, { RequireWorkspace } from './lib/RequireAuth.jsx';
+import NewWorkspace from './components-local/NewWorkspace.jsx';
 import { useAuth } from './lib/auth.jsx';
 import { useWorkspace } from './lib/workspace.jsx';
 
@@ -154,6 +155,7 @@ function WorkspaceLayout() {
               ))}
             </select>
           ) : null}
+          <NewWorkspace />
           <Button size="sm" variant="secondary" as={Link} to="/docs" icon={<Icon name="book" size={13} />}>
             Docs
           </Button>

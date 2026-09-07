@@ -91,6 +91,21 @@ export function createApiClient(getToken) {
     deleteFile: (workspaceId, fileId) =>
       request(`/v1/files/${fileId}`, { method: 'DELETE', workspaceId }),
 
+    listAgents: workspaceId => request('/v1/agents', { workspaceId }),
+    createAgent: (workspaceId, body) =>
+      request('/v1/agents', { method: 'POST', body, workspaceId }),
+    updateAgent: (workspaceId, agentId, body) =>
+      request(`/v1/agents/${agentId}`, { method: 'PATCH', body, workspaceId }),
+    deleteAgent: (workspaceId, agentId) =>
+      request(`/v1/agents/${agentId}`, { method: 'DELETE', workspaceId }),
+
+    listKeys: workspaceId => request('/v1/keys', { workspaceId }),
+    /** Resolves to { key, secret } — the secret exists in this response only. */
+    createKey: (workspaceId, body) =>
+      request('/v1/keys', { method: 'POST', body, workspaceId }),
+    revokeKey: (workspaceId, keyId) =>
+      request(`/v1/keys/${keyId}`, { method: 'DELETE', workspaceId }),
+
     listFolders: workspaceId => request('/v1/folders', { workspaceId }),
     createFolder: (workspaceId, path) =>
       request('/v1/folders', { method: 'POST', body: { path }, workspaceId }),

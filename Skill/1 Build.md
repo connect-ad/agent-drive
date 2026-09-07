@@ -50,20 +50,26 @@ Keep this as the regression baseline. A large deviation means something was
 pulled in that shouldn't have been:
 
 ```
-90 modules transformed
-dist/index.html                   0.39 kB │ gzip:  0.26 kB
-dist/assets/index-*.css          37.10 kB │ gzip:  6.91 kB
-dist/assets/index-*.js          293.59 kB │ gzip: 90.80 kB │ map: 1,080.13 kB
-built in ~1.2s
+111 modules transformed
+dist/index.html                   0.39 kB │ gzip:   0.26 kB
+dist/assets/index-*.css          37.10 kB │ gzip:   6.91 kB
+dist/assets/index-*.js          496.00 kB │ gzip: 135.00 kB │ map: 1,950.00 kB
+built in ~0.9s
 ```
+
+Vite warns that the JS chunk is over 500 kB. Roughly 185 kB of it is the
+Firebase SDK, which is expected and not yet worth code-splitting.
 
 `dist/` is ~1.4 MB, almost all of it the sourcemap. It is gitignored.
 
-**`/sandbox` needs a site key at build time.** It is the only screen that calls
-the real API, and its Turnstile widget cannot render without one:
+**The build needs the Firebase config and a Turnstile site key.** Without the
+`VITE_FIREBASE_*` values every sign-in button fails at runtime, so CI treats
+them as fatal rather than warning - a deploy that looks green and is not is
+worse than one that stops. It also refuses outright if a dev build is pointed at
+the prod Firebase project, which is otherwise invisible until somebody signs in:
 
 ```bash
-VITE_TURNSTILE_SITE_KEY=... VITE_API_BASE=https://api-dev.agentdisk.io npm run build
+VITE_TURNSTILE_SITE_KEY=... VITE_API_BASE=https://api-dev.agentdisk.io VITE_FIREBASE_API_KEY=... VITE_FIREBASE_AUTH_DOMAIN=agentdisk-dev.firebaseapp.com VITE_FIREBASE_PROJECT_ID=agentdisk-dev VITE_FIREBASE_APP_ID=... npm run build
 ```
 
 CI reads both from `terraform output` so the widget the dashboard renders cannot
@@ -180,7 +186,7 @@ re-clone on Windows would rewrite every line ending and void the verification.
 
 ## Test
 
-`apps/api` has a real suite: **194 tests across 13 files**, run with
+`apps/api` has a real suite: **272 tests across 18 files**, run with
 `npm test` from `apps/api`.
 
 It runs inside the **real Workers runtime against real Miniflare-backed D1 and
@@ -281,6 +287,37 @@ a client ID and secret). GitHub's provider is the one part no API can do — it
 needs a GitHub OAuth App per environment, with the callback URL
 `https://<project>.firebaseapp.com/__/auth/handler`, and its client secret is
 entered in the Firebase console.
+
+### R2 credentials, and the two ways they go wrong
+
+Two different R2 tokens, deliberately not sharing a name:
+
+| Secret | Bucket | Used by |
+|---|---|---|
+| `R2_STATE_*` (repo level) | `agentdisk-tfstate` | Terraform's S3 backend |
+| `R2_FILES_*` (environment) | `agentdisk-<env>-files` | Presigned upload/download URLs |
+
+`deploy.yml` maps `R2_FILES_*` onto the Worker's own `R2_ACCESS_KEY_ID` /
+`R2_SECRET_ACCESS_KEY`, where there is only one bucket and the short name is
+unambiguous. Both failures below were diagnosed from the error text alone, and
+both look like something else at first:
+
+- **`AccessDenied` on the state bucket is not a bad credential.** An unknown key
+  answers `InvalidAccessKeyId` and a wrong secret answers
+  `SignatureDoesNotMatch`. `AccessDenied` means R2 recognised the credential and
+  refused it for that bucket - so the token is intact and its *permissions*
+  changed, which GitHub has no way to reflect. Do not start by re-entering the
+  GitHub secret; look at the token's bucket scope and expiry in the Cloudflare
+  dashboard first.
+- **`Credential access key has length 64, should be 32`** means the Access Key
+  ID field holds a Secret Access Key. An R2 Access Key ID is 32 hex characters;
+  the secret is 64. They sit next to each other in Cloudflare's token screen and
+  are trivially swapped.
+
+**A changed secret does not reach the Worker until a deploy runs.** The values
+are pushed by `wrangler secret put` inside the deploy job, so updating the
+GitHub secret and retrying the request tests the *old* value. Re-run the deploy
+first.
 
 ### Reading a failed run
 

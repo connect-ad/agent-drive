@@ -55,6 +55,17 @@ kept working rather than deleted.
   presign routes refuse), the same way `POST /v1/workspaces` refuses without a
   Turnstile secret.
 
+## Proven
+
+7 Sept 2026: a 2 MB file round-tripped through `agentdisk-dev-files` via a
+presigned PUT and a presigned GET, SHA-256 identical in and out. That is
+roadmap step 27.
+
+The first attempt failed with `InvalidArgument: Credential access key has
+length 64, should be 32` - the Access Key ID field held a Secret Access Key.
+See [Skill/1 Build](../Skill/1%20Build.md) for that and the other R2 failure
+mode worth recognising on sight.
+
 ## Note for whoever does this
 
 Cloudflare's R2 token UI hands over both values ready to use. If a credential is

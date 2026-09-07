@@ -106,6 +106,15 @@ export function createApiClient(getToken) {
     revokeKey: (workspaceId, keyId) =>
       request(`/v1/keys/${keyId}`, { method: 'DELETE', workspaceId }),
 
+    listWebhooks: workspaceId => request('/v1/webhooks', { workspaceId }),
+    /** Resolves to { webhook, secret } — the secret exists in this response only. */
+    createWebhook: (workspaceId, body) =>
+      request('/v1/webhooks', { method: 'POST', body, workspaceId }),
+    updateWebhook: (workspaceId, id, body) =>
+      request(`/v1/webhooks/${id}`, { method: 'PATCH', body, workspaceId }),
+    deleteWebhook: (workspaceId, id) =>
+      request(`/v1/webhooks/${id}`, { method: 'DELETE', workspaceId }),
+
     listActivity: (workspaceId, limit = 50) =>
       request(`/v1/activity?limit=${limit}`, { workspaceId }),
 

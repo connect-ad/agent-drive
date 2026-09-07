@@ -15,7 +15,14 @@
  *   - never build SQL by interpolating anything; always bind with ?
  *   - never expose the raw D1 binding
  */
-import type { AgentRow, ApiKeyRow, AuditEventRow, FileRow, FolderRow } from "./types";
+import type {
+  AgentRow,
+  ApiKeyRow,
+  AuditEventRow,
+  FileRow,
+  FolderRow,
+  WebhookRow,
+} from "./types";
 import { escapeLikePattern } from "../lib/paths";
 
 abstract class WorkspaceScoped {
@@ -583,6 +590,68 @@ export class WorkspaceScopedApiKeys extends WorkspaceScoped {
   }
 }
 
+/**
+ * The customer's own webhook endpoints.
+ *
+ * `secret` is selected here because the repository is the wrong place to decide
+ * what a caller may see - the route strips it, and does so in exactly one
+ * function (`toResource`) so there is a single place to get that right.
+ */
+export class WorkspaceScopedWebhooks extends WorkspaceScoped {
+  async list(): Promise<WebhookRow[]> {
+    const result = await this.db
+      .prepare(`SELECT * FROM webhooks WHERE workspace_id = ? ORDER BY created_at DESC`)
+      .bind(this.workspaceId)
+      .all<WebhookRow>();
+    return result.results ?? [];
+  }
+
+  async getById(id: string): Promise<WebhookRow | null> {
+    return this.db
+      .prepare(`SELECT * FROM webhooks WHERE workspace_id = ? AND id = ?`)
+      .bind(this.workspaceId, id)
+      .first<WebhookRow>();
+  }
+
+  async insert(row: WebhookRow): Promise<void> {
+    if (row.workspace_id !== this.workspaceId) {
+      throw new Error("Refusing to insert a webhook belonging to another workspace.");
+    }
+    await this.db
+      .prepare(
+        `INSERT INTO webhooks (id, workspace_id, url, secret, events, status, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
+      )
+      .bind(row.id, this.workspaceId, row.url, row.secret, row.events, row.status, row.created_at)
+      .run();
+  }
+
+  async update(
+    id: string,
+    changes: { events?: string; status?: string }
+  ): Promise<boolean> {
+    const sets: string[] = [];
+    const values: string[] = [];
+    if (changes.events !== undefined) { sets.push("events = ?"); values.push(changes.events); }
+    if (changes.status !== undefined) { sets.push("status = ?"); values.push(changes.status); }
+    if (sets.length === 0) return false;
+
+    const result = await this.db
+      .prepare(`UPDATE webhooks SET ${sets.join(", ")} WHERE workspace_id = ? AND id = ?`)
+      .bind(...values, this.workspaceId, id)
+      .run();
+    return (result.meta.changes ?? 0) > 0;
+  }
+
+  async delete(id: string): Promise<boolean> {
+    const result = await this.db
+      .prepare(`DELETE FROM webhooks WHERE workspace_id = ? AND id = ?`)
+      .bind(this.workspaceId, id)
+      .run();
+    return (result.meta.changes ?? 0) > 0;
+  }
+}
+
 export class WorkspaceScopedAuditEvents extends WorkspaceScoped {
   async append(row: AuditEventRow): Promise<void> {
     if (row.workspace_id !== this.workspaceId) {
@@ -653,6 +722,7 @@ export function createWorkspaceContext(db: D1Database, workspaceId: string) {
     folders: new WorkspaceScopedFolders(db, workspaceId),
     agents: new WorkspaceScopedAgents(db, workspaceId),
     apiKeys: new WorkspaceScopedApiKeys(db, workspaceId),
+    webhooks: new WorkspaceScopedWebhooks(db, workspaceId),
     auditEvents: new WorkspaceScopedAuditEvents(db, workspaceId),
     counters: new WorkspaceScopedCounters(db, workspaceId),
   };

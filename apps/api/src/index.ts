@@ -19,6 +19,12 @@ import { createAgent, deleteAgent, getAgent, listAgents, patchAgent } from "./ro
 import { createKey, listKeys, revokeKey } from "./routes/keys";
 import { handleMcp } from "./mcp/server";
 import { listActivity } from "./routes/activity";
+import {
+  createWebhook,
+  deleteWebhook,
+  listWebhooks,
+  patchWebhook,
+} from "./routes/webhooks";
 import { createPortalSession, getBilling } from "./routes/billing";
 import { handleStripeWebhook } from "./routes/stripe-webhook";
 import {
@@ -267,6 +273,35 @@ export default {
       }
 
       const segments = url.pathname.split("/").filter((segment) => segment !== "");
+
+      // The customer's own webhook endpoints. `/v1/webhooks/stripe` is checked
+      // first, below, because it is the one path under this prefix that is
+      // Stripe calling us rather than us listing their endpoints.
+      if (
+        segments[0] === "v1" &&
+        segments[1] === "webhooks" &&
+        segments[2] !== "stripe"
+      ) {
+        const webhookId = segments[2];
+        if (webhookId === undefined) {
+          if (request.method === "GET") return await authed({ op: "list" }, listWebhooks);
+          if (request.method === "POST") return await authed({ op: "write" }, createWebhook);
+          throw new ApiError("NOT_FOUND", "No such route.");
+        }
+        if (segments[3] !== undefined) throw new ApiError("NOT_FOUND", "No such route.");
+
+        if (request.method === "PATCH") {
+          return await authed({ op: "write" }, (authCtx, req) =>
+            patchWebhook(authCtx, req, webhookId)
+          );
+        }
+        if (request.method === "DELETE") {
+          return await authed({ op: "write" }, (authCtx, req) =>
+            deleteWebhook(authCtx, req, webhookId)
+          );
+        }
+        throw new ApiError("NOT_FOUND", "No such route.");
+      }
 
       // Stripe's webhook. Public by necessity - Stripe holds no credential of
       // ours - and authenticated instead by the signature over the raw body,

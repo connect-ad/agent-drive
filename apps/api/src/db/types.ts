@@ -87,3 +87,16 @@ export interface WorkspaceRow {
   created_at: number;
   updated_at: number;
 }
+
+/** A customer's own webhook endpoint (05 PART 11.1). */
+export interface WebhookRow {
+  id: string;
+  workspace_id: string;
+  url: string;
+  /** The signing secret. Never leaves the repository layer in a response. */
+  secret: string;
+  /** JSON array of event names. */
+  events: string;
+  status: string;
+  created_at: number;
+}

@@ -14,6 +14,8 @@ import { NotFound, Forbidden, ServerError, Maintenance } from './routes/ErrorPag
 import { Sandbox } from './routes/Sandbox.jsx';
 import { Signup, VerifyEmail, ForgotPassword, ResetPassword, Login } from './routes/Auth.jsx';
 import { Landing, Pricing } from './routes/Marketing.jsx';
+import { Terms, Privacy } from './routes/Legal.jsx';
+import Docs from './routes/Docs.jsx';
 import McpConnection from './routes/McpConnection.jsx';
 import Webhooks from './routes/Webhooks.jsx';
 import ActivityLog from './routes/ActivityLog.jsx';
@@ -143,6 +145,9 @@ export default function App() {
     <Routes>
       <Route path="/" element={<Landing />} />
       <Route path="/pricing" element={<Pricing />} />
+      <Route path="/docs" element={<Docs />} />
+      <Route path="/terms" element={<Terms />} />
+      <Route path="/privacy" element={<Privacy />} />
       <Route element={<RequireAuth />}>
         <Route path="/app" element={<CurrentWorkspaceRedirect />} />
       </Route>

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Button, Icon, Badge, CodeBlock, Tabs, Switch, Panel } from '../components/index.js';
+import { useAuth } from '../lib/auth.jsx';
 
 /**
  * 8.1 Landing · 8.2 Pricing — MVP-0.
@@ -62,7 +63,8 @@ const USE_CASES = [
   { title: 'Webhook-driven workflows', body: 'Fire downstream jobs the moment an object lands or finishes processing.', replaces: 'Replaces: polling on a timer' }
 ];
 
-function Nav() {
+export function Nav() {
+  const { user } = useAuth();
   return (
     <nav className="mk__nav">
       <span className="row" style={{ gap: 'var(--s-4)' }}>
@@ -72,14 +74,20 @@ function Nav() {
       <span className="mk__navlinks">
         <Link to="/docs">Docs</Link>
         <Link to="/pricing">Pricing</Link>
-        <Link to="/login">Sign in</Link>
-        <Button size="sm" as={Link} to="/signup">Get started</Button>
+        {user ? (
+          <Button size="sm" as={Link} to="/app">Open dashboard</Button>
+        ) : (
+          <>
+            <Link to="/login">Sign in</Link>
+            <Button size="sm" as={Link} to="/signup">Get started</Button>
+          </>
+        )}
       </span>
     </nav>
   );
 }
 
-function Footer() {
+export function Footer() {
   return (
     <footer className="mk__foot">
       <div className="mk__wrap row" style={{ gap: 'var(--s-7)', flexWrap: 'wrap' }}>

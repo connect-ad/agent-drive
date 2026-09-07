@@ -81,21 +81,30 @@ export async function linkFirebaseUidToEmail(
 /**
  * The address to store, which is not always the one on the token.
  *
- * `users.email` is NOT NULL UNIQUE, so two things have to be true before a
- * claimed address can be written: Firebase must have verified it, and nobody
- * must already hold it. Either failure falls back to a placeholder on the
- * RFC 2606 `.invalid` TLD, which can never resolve or receive mail.
+ * `users.email` is NOT NULL UNIQUE, so an address that somebody already holds
+ * cannot be written at all - discovering that by crashing on the unique
+ * constraint would turn a foreseeable signup into a 500 whose failure mode also
+ * confirms the address is registered. A taken address therefore falls back to a
+ * placeholder on the RFC 2606 `.invalid` TLD, which can never resolve or
+ * receive mail.
  *
- * Both fallbacks matter, for different reasons. Writing an *unverified* address
- * would let anyone who can type a colleague's address into a signup form take
- * that identity's place. Writing a *taken* one is simply impossible - and
- * discovering that by crashing on the unique constraint would turn a foreseeable
- * signup into a 500 whose failure mode also happens to confirm that the address
- * is registered.
+ * **An *unverified* address is stored, and that is a deliberate correction.**
+ * The first version of this refused those too, reasoning that anyone could type
+ * a colleague's address into a signup form. That reasoning was right about the
+ * danger and wrong about where it lives: this row is brand new, collides with
+ * nothing, and grants nothing - so writing the address here takes nothing from
+ * anybody. Refusing it instead made every email/password signup display as
+ * `<uid>@firebase.invalid` until they clicked a link, and made them impossible
+ * to invite by the address they actually gave.
+ *
+ * The danger is real but belongs one step later: an unverified squatter must
+ * not be able to *receive an invitation* meant for the real owner of that
+ * address. That check lives at the invite (routes/members.ts), where the
+ * verified state is what is actually being relied upon.
  */
 async function usableEmail(db: D1Database, claims: FirebaseClaims): Promise<string> {
   const placeholder = `${claims.uid}@firebase.invalid`;
-  if (claims.email === null || !claims.emailVerified) return placeholder;
+  if (claims.email === null) return placeholder;
 
   const taken = await db
     .prepare(`SELECT 1 AS present FROM users WHERE email = ?`)
@@ -103,6 +112,51 @@ async function usableEmail(db: D1Database, claims: FirebaseClaims): Promise<stri
     .first<{ present: number }>();
 
   return taken === null ? claims.email : placeholder;
+}
+
+/**
+ * Adopt the real address once Firebase has verified it.
+ *
+ * Two rows need this. One provisioned before the address was free, and one
+ * provisioned from a token with no email at all. Without it, a placeholder is
+ * permanent - the row would keep working and keep displaying as
+ * `<uid>@firebase.invalid` forever, which is exactly the state this function
+ * exists to get out of.
+ *
+ * Guarded on the address still being free, so this can never take an address
+ * from the row that legitimately holds it.
+ */
+export async function adoptVerifiedEmail(
+  db: D1Database,
+  user: UserRow,
+  claims: FirebaseClaims,
+  now: number
+): Promise<UserRow> {
+  const wantsAdoption =
+    claims.email !== null && claims.emailVerified && user.email !== claims.email;
+  if (!wantsAdoption) {
+    // Still record that the address was verified, even when it is unchanged.
+    if (claims.emailVerified && user.email_verified_at === null) {
+      await db
+        .prepare(`UPDATE users SET email_verified_at = ?, updated_at = ? WHERE id = ?`)
+        .bind(now, now, user.id)
+        .run();
+      return { ...user, email_verified_at: now };
+    }
+    return user;
+  }
+
+  const taken = await db
+    .prepare(`SELECT 1 AS present FROM users WHERE email = ? AND id != ?`)
+    .bind(claims.email, user.id)
+    .first<{ present: number }>();
+  if (taken !== null) return user;
+
+  await db
+    .prepare(`UPDATE users SET email = ?, email_verified_at = ?, updated_at = ? WHERE id = ?`)
+    .bind(claims.email, now, now, user.id)
+    .run();
+  return { ...user, email: claims.email as string, email_verified_at: now };
 }
 
 /**

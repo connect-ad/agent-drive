@@ -97,11 +97,15 @@ async function call(
   }
 }
 
-async function seedUser(u: { id: string; uid: string; email: string }): Promise<void> {
+async function seedUser(
+  u: { id: string; uid: string; email: string },
+  verified = true
+): Promise<void> {
   await env.DB.prepare(
-    `INSERT INTO users (id, email, firebase_uid, is_provisional, session_revoked_after,
-                        created_at, updated_at) VALUES (?, ?, ?, 0, 0, ?, ?)`
-  ).bind(u.id, u.email, u.uid, NOW, NOW).run();
+    `INSERT INTO users (id, email, firebase_uid, email_verified_at, is_provisional,
+                        session_revoked_after, created_at, updated_at)
+     VALUES (?, ?, ?, ?, 0, 0, ?, ?)`
+  ).bind(u.id, u.email, u.uid, verified ? NOW : null, NOW, NOW).run();
 }
 
 async function seedMembership(
@@ -188,6 +192,21 @@ describe("inviting", () => {
     });
     expect(res.status).toBe(404);
     expect(await res.text()).toContain("sign up first");
+  });
+
+  it("refuses an account that has not verified its address", async () => {
+    // Anyone can type an address into a signup form. Letting an account that
+    // has never proved it owns one receive an invitation addressed to it would
+    // hand a squatter the access somebody meant for their colleague.
+    const squatter = { id: "usr_SQUAT", uid: "fb-uid-squat", email: "colleague@example.com" };
+    await seedUser(squatter, false);
+
+    const res = await call(await mint(OWNER.uid, OWNER.email), inviteMember, {
+      method: "POST",
+      body: { email: squatter.email, role: "admin" },
+    });
+    expect(res.status).toBe(409);
+    expect(await res.text()).toContain("not verified");
   });
 
   it("refuses a duplicate", async () => {

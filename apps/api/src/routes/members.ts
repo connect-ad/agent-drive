@@ -82,6 +82,17 @@ export async function inviteMember(ctx: AuthContext, request: Request): Promise<
   const body = await parse(request, inviteSchema);
 
   const user = await ctx.members.findUserByEmail(body.email);
+  if (user !== null && user.firebase_uid !== null && user.emailVerifiedAt === null) {
+    // The check that the provisioning path deliberately does not make. Anyone
+    // can type an address into a signup form; letting an account that has never
+    // proved it owns one *receive an invitation* addressed to it would hand a
+    // squatter access somebody meant for their colleague.
+    throw new ApiError(
+      "CONFLICT",
+      `${body.email} has an account but has not verified that address yet. ` +
+        "Ask them to click the link in their verification email, then invite them."
+    );
+  }
   if (user === null || user.firebase_uid === null) {
     // Named plainly rather than hidden. This is not account enumeration in any
     // meaningful sense - the person inviting already believes their colleague

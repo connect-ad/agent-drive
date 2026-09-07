@@ -58,13 +58,24 @@ export class WorkspaceMembers {
   }
 
   /** Users are not workspace-scoped; an invitation has to look outside. */
-  async findUserByEmail(
-    email: string
-  ): Promise<{ id: string; email: string; firebase_uid: string | null } | null> {
+  async findUserByEmail(email: string): Promise<{
+    id: string;
+    email: string;
+    firebase_uid: string | null;
+    emailVerifiedAt: number | null;
+  } | null> {
     return this.db
-        .prepare(`SELECT id, email, firebase_uid FROM users WHERE email = ?`)
+      .prepare(
+        `SELECT id, email, firebase_uid, email_verified_at AS emailVerifiedAt
+           FROM users WHERE email = ?`
+      )
       .bind(email)
-      .first<{ id: string; email: string; firebase_uid: string | null }>();
+      .first<{
+        id: string;
+        email: string;
+        firebase_uid: string | null;
+        emailVerifiedAt: number | null;
+      }>();
   }
 
   async find(membershipId: string): Promise<MemberRecord | null> {

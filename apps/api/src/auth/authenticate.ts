@@ -23,6 +23,7 @@ import {
   findUserByFirebaseUid,
   linkFirebaseUidToEmail,
   provisionUser,
+  adoptVerifiedEmail,
   type UserRow,
 } from "../db/user-lookup";
 import { parseScopes, ScopeParseError } from "./scopes";
@@ -246,7 +247,9 @@ async function resolveUser(
   now: number
 ): Promise<UserRow> {
   const existing = await findUserByFirebaseUid(db, claims.uid);
-  if (existing !== null) return existing;
+  // Adopt the real address the moment Firebase verifies it, so a row
+  // provisioned before then stops displaying as a placeholder.
+  if (existing !== null) return adoptVerifiedEmail(db, existing, claims, now);
 
   if (claims.email !== null && claims.emailVerified) {
     const linked = await linkFirebaseUidToEmail(db, claims.email, claims.uid, now);

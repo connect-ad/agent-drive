@@ -17,12 +17,19 @@ locals {
   # would need paid Advanced Certificate Manager. Doc 12's subdomain table.
   web_hostname = "app${var.subdomain_suffix}.${var.root_domain}"
 
+  # The internal staff console (14 PART 28.1). Its own origin, deliberately -
+  # a staff session cookie and a customer session cookie can then never share a
+  # cookie scope, which makes "these cannot be confused" true at the browser
+  # level rather than by naming convention.
+  admin_hostname = "admin${var.subdomain_suffix}.${var.root_domain}"
+
   worker_name = "${local.prefix}-api"
 
   # Same agentdisk-<env>-<resource> convention as every other resource here, so
   # the prod names are already correct the day the prod workspace is first
   # applied — nothing about these resources is dev-specific.
-  web_worker_name = "${local.prefix}-web"
+  web_worker_name   = "${local.prefix}-web"
+  admin_worker_name = "${local.prefix}-admin"
 
   # Placeholder Worker body. Terraform creates the script so that the custom
   # domain bindings below have an existing service to attach to; Wrangler
@@ -205,6 +212,46 @@ resource "cloudflare_workers_custom_domain" "web" {
   zone_id    = var.zone_id
   hostname   = local.web_hostname
   service    = cloudflare_workers_script.web.script_name
+}
+
+# The staff console (apps/admin), same shape as the dashboard above: an
+# assets-only Worker on its own hostname.
+#
+# Its own origin is the point, not an accident of layout. 14 PART 27.2 gives
+# staff a separate session cookie scoped to this hostname alone, so a staff
+# credential and a customer credential cannot reach each other in a browser
+# even if some future handler were careless. Same-origin would make that a
+# matter of naming discipline; a separate origin makes it a matter of the
+# browser's own rules.
+resource "cloudflare_workers_script" "admin" {
+  account_id         = var.account_id
+  script_name        = local.admin_worker_name
+  content            = local.placeholder_worker
+  main_module        = "worker.js"
+  compatibility_date = "2026-08-01"
+
+  lifecycle {
+    ignore_changes = [
+      content,
+      main_module,
+      assets,
+      keep_assets,
+      bindings,
+      compatibility_date,
+      compatibility_flags,
+      migrations,
+      observability,
+      placement,
+      usage_model,
+    ]
+  }
+}
+
+resource "cloudflare_workers_custom_domain" "admin" {
+  account_id = var.account_id
+  zone_id    = var.zone_id
+  hostname   = local.admin_hostname
+  service    = cloudflare_workers_script.admin.script_name
 }
 
 # ----------------------------------------------------- credentials ---

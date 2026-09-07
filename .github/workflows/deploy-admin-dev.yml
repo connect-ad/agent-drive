@@ -1,0 +1,280 @@
+name: Deploy admin dev
+
+# The staff console (apps/admin) -> admin-dev.agentdisk.io.
+#
+# A third workflow rather than a parameter on the dashboard's, for the same
+# reason that one is separate from deploy.yml: these pipelines are short and
+# their differences are the interesting part. Merging them would trade a file
+# nobody has to read for a conditional everybody does.
+#
+# The console has no Turnstile key and no Firebase config - it authenticates
+# against /v1/staff/* with a password and a TOTP code, and holds no client
+# credential at all. So the build step here takes only VITE_API_BASE, and that
+# still comes from `terraform output` rather than a literal, so the console can
+# never point at an API this stack did not build.
+
+on:
+  push:
+    branches: [dev]
+    # Same rule as the dashboard: an apps/api commit does not redeploy the
+    # console, but infra/terraform does - the admin Worker and its custom domain
+    # live in the same root config as everything else.
+    paths:
+      - "apps/admin/**"
+      - "infra/terraform/**"
+      - ".github/workflows/deploy-admin-dev.yml"
+  workflow_dispatch:
+
+# Serialise console deploys, and never cancel one mid-apply: an interrupted
+# apply can leave Terraform state locked or infrastructure half-created.
+#
+# Its own group, for the same reason the dashboard has one: GitHub keeps only
+# one pending run per group, so sharing would let a burst of pushes silently
+# drop a queued deploy - and a deploy that vanishes without failing is the
+# outcome these pipelines exist to prevent. Lock contention with the other two
+# is handled loudly by -lock-timeout below.
+concurrency:
+  group: deploy-admin-dev
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  deployments: write
+
+env:
+  TERRAFORM_VERSION: "1.16.1"
+
+jobs:
+  # A broken build must never reach a live hostname. Gating the deploy on this
+  # job (rather than a required status check on the branch) keeps direct pushes
+  # to dev fast while still refusing to ship a red build - same reasoning as
+  # deploy.yml.
+  verify:
+    name: Verify console build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/admin
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/admin/package-lock.json
+
+      # `npm ci`, not `npm install`: it fails when package.json and the lockfile
+      # disagree, which is the check that stops an unreviewed dependency change
+      # from reaching a deploy.
+      - run: npm ci
+
+      # There is no lint, typecheck or test script in apps/admin yet (backlog 010).
+      # Listing steps that do not exist would be worse than admitting it: the
+      # build is currently the only gate, and it should be obvious that it is.
+      - run: npm run build
+
+      - name: Assert the build produced a usable bundle
+        run: |
+          set -euo pipefail
+          test -f dist/index.html || { echo "::error::dist/index.html missing after build"; exit 1; }
+          grep -q '<div id="root">' dist/index.html || { echo "::error::dist/index.html has no SPA mount point"; exit 1; }
+          ls dist/assets/index-*.js >/dev/null 2>&1 || { echo "::error::no hashed JS bundle in dist/assets"; exit 1; }
+          echo "Build output looks like a real SPA bundle:"
+          ls -la dist dist/assets
+
+  deploy:
+    name: Deploy console to dev
+    needs: verify
+    runs-on: ubuntu-latest
+    environment: dev
+    defaults:
+      run:
+        shell: bash
+    env:
+      # Same credential sourcing as deploy.yml: infrastructure credentials are
+      # repository-level secrets, non-secret configuration comes from variables.
+      AWS_ACCESS_KEY_ID: ${{ secrets.R2_STATE_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_STATE_SECRET_ACCESS_KEY }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.TERRAFORM_CF_ACCESS_TOKEN }}
+
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CF_ACCOUNT_ID }}
+      TF_VAR_account_id: ${{ vars.CF_ACCOUNT_ID }}
+      TF_VAR_zone_id: ${{ vars.CF_ZONE_ID }}
+      TF_VAR_root_domain: ${{ vars.DOMAIN_NAME }}
+      TFSTATE_BUCKET: ${{ vars.TFSTATE_BUCKET }}
+
+      # This workflow is dev-only, by construction rather than by convention.
+      # There is no `environment` input to get wrong: prod has never been applied
+      # and is gated behind a PR into main plus required-reviewer approval.
+      WORKSPACE: dev
+      ENVIRONMENT_NAME: dev
+      EXPECTED_ADMIN_DOMAIN: ${{ vars.ADMIN_DOMAIN }}
+      EXPECTED_ADMIN_WORKER: ${{ vars.ADMIN_WORKER_NAME }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/admin/package-lock.json
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          terraform_wrapper: false
+
+      - name: Verify required secrets are present
+        run: |
+          set -euo pipefail
+          missing=""
+          for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID TF_VAR_zone_id TF_VAR_root_domain TFSTATE_BUCKET EXPECTED_ADMIN_DOMAIN EXPECTED_ADMIN_WORKER AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY; do
+            if [ -z "${!name:-}" ]; then
+              missing="$missing $name"
+            fi
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Missing secrets or variables for the $ENVIRONMENT_NAME environment:$missing"
+            exit 1
+          fi
+          echo "All required infrastructure secrets and variables are present."
+
+      - name: Write Terraform backend config
+        working-directory: infra/terraform
+        run: |
+          set -euo pipefail
+          cat > backend.hcl <<EOF
+          bucket = "${TFSTATE_BUCKET}"
+          endpoints = {
+            s3 = "https://${CLOUDFLARE_ACCOUNT_ID}.r2.cloudflarestorage.com"
+          }
+          EOF
+          echo "State bucket: $TFSTATE_BUCKET (key: $WORKSPACE/terraform.tfstate)"
+
+      - name: Terraform init
+        working-directory: infra/terraform
+        run: terraform init -backend-config=backend.hcl -input=false
+
+      - name: Select Terraform workspace
+        working-directory: infra/terraform
+        run: terraform workspace select -or-create "$WORKSPACE"
+
+      # Workspace selection is mutable CLI state. Assert it landed where we think
+      # before anything is applied - the check that stops a mis-selected
+      # workspace from applying dev intent to prod resources.
+      - name: Assert workspace
+        working-directory: infra/terraform
+        run: |
+          set -euo pipefail
+          actual="$(terraform workspace show)"
+          if [ "$actual" != "$WORKSPACE" ]; then
+            echo "::error::Workspace is '$actual' but this job deploys '$WORKSPACE'. Refusing to apply."
+            exit 1
+          fi
+          echo "Workspace confirmed: $actual"
+
+      # 10m rather than deploy.yml's 5m: the API deploy runs on its own
+      # concurrency group and may legitimately hold the state lock through a
+      # full apply plus migrations when both are triggered by the same push.
+      - name: Terraform apply
+        working-directory: infra/terraform
+        run: terraform apply -auto-approve -input=false -lock-timeout=10m
+
+      - name: Capture Terraform outputs
+        working-directory: infra/terraform
+        run: |
+          set -euo pipefail
+          reported="$(terraform output -raw environment)"
+          if [ "$reported" != "$WORKSPACE" ]; then
+            echo "::error::State reports environment '$reported', expected '$WORKSPACE'."
+            exit 1
+          fi
+
+          admin_url="$(terraform output -raw admin_url)"
+          admin_worker="$(terraform output -raw admin_worker_name)"
+
+          # Terraform derives these from the workspace; the environment variables
+          # state them independently. Assert they agree rather than trusting them
+          # to - a mismatch means GitHub and the infrastructure disagree about
+          # what is being deployed, and the deploy must stop rather than guess.
+          if [ "$admin_url" != "https://$EXPECTED_ADMIN_DOMAIN" ]; then
+            echo "::error::Terraform routed the console to '$admin_url' but the $ENVIRONMENT_NAME environment expects 'https://$EXPECTED_ADMIN_DOMAIN'."
+            exit 1
+          fi
+          if [ "$admin_worker" != "$EXPECTED_ADMIN_WORKER" ]; then
+            echo "::error::Terraform built Worker '$admin_worker' but the $ENVIRONMENT_NAME environment expects '$EXPECTED_ADMIN_WORKER'."
+            exit 1
+          fi
+          echo "Names agree with the $ENVIRONMENT_NAME environment variables."
+
+          echo "ADMIN_URL=$admin_url" >> "$GITHUB_ENV"
+          echo "ADMIN_WORKER=$admin_worker" >> "$GITHUB_ENV"
+
+          # The API base comes from `terraform output`, not a literal, so the
+          # console can never be built pointing at an API this stack did not
+          # create. That is the only build-time value it needs: unlike the
+          # dashboard, the console carries no Turnstile key and no Firebase
+          # config, because staff authenticate with a password and a TOTP code
+          # against /v1/staff/* and hold no client credential at all.
+          echo "VITE_API_BASE=$(terraform output -raw api_url)" >> "$GITHUB_ENV"
+
+      - name: Install console dependencies
+        working-directory: apps/admin
+        run: npm ci
+
+      - name: Build console
+        working-directory: apps/admin
+        env:
+          VITE_API_BASE: ${{ env.VITE_API_BASE }}
+        run: |
+          set -euo pipefail
+          if [ -z "${VITE_API_BASE:-}" ]; then
+            echo "::error::No api_url from Terraform; the console would have no API to talk to."
+            exit 1
+          fi
+          npm run build
+
+
+      # No apply-tf-outputs.mjs step here, unlike the API: the console is
+      # static assets with no D1/R2/KV/Queue binding, so wrangler.toml holds no
+      # resource ID to inject. The one Terraform-owned value it does carry - the
+      # script name - was asserted against `terraform output` above.
+      - name: Assert wrangler targets the Terraform-owned Worker name
+        working-directory: apps/admin
+        run: |
+          set -euo pipefail
+          if ! grep -q "^name = \"$ADMIN_WORKER\"\$" wrangler.toml; then
+            echo "::error::wrangler.toml has no [env.$WORKSPACE] name matching Terraform's '$ADMIN_WORKER'."
+            grep -n '^name' wrangler.toml || true
+            exit 1
+          fi
+          echo "wrangler.toml declares $ADMIN_WORKER."
+
+      # No `wrangler secret put` step, and that is not an omission: a static
+      # bundle is public by definition, so anything secret here would be
+      # readable by every visitor. Credentials live behind the API.
+      - name: Deploy console
+        working-directory: apps/admin
+        run: npx wrangler deploy --env "$WORKSPACE"
+
+      # Stricter than "the deploy command exited 0". Checks the live hostname
+      # serves the built SPA, that deep links fall back to index.html, and that
+      # no workers.dev hostname bypasses the custom domain.
+      - name: Smoke test
+        working-directory: apps/admin
+        run: node scripts/smoke-test.mjs "$ADMIN_URL" "$ADMIN_WORKER"
+
+      - name: Report result
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ "${{ job.status }}" = "success" ]; then
+            echo "### Console deploy to $WORKSPACE succeeded" >> "$GITHUB_STEP_SUMMARY"
+            echo "- Console: ${ADMIN_URL:-unknown}" >> "$GITHUB_STEP_SUMMARY"
+            echo "- Worker: ${ADMIN_WORKER:-unknown}" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### Console deploy to $WORKSPACE FAILED (${{ job.status }})" >> "$GITHUB_STEP_SUMMARY"
+          fi

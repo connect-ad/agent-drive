@@ -88,3 +88,13 @@ output "r2_secret_access_key" {
   value       = module.stack.r2_secret_access_key
   sensitive   = true
 }
+
+output "admin_worker_name" {
+  description = "Wrangler deploys the staff console into this script."
+  value       = module.stack.admin_worker_name
+}
+
+output "admin_url" {
+  description = "Where the staff console is served."
+  value       = module.stack.admin_url
+}

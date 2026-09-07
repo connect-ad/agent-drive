@@ -99,3 +99,13 @@ output "r2_secret_access_key" {
   value       = try(sha256(one(cloudflare_account_token.r2_signing).value), "")
   sensitive   = true
 }
+
+output "admin_worker_name" {
+  description = "Wrangler deploys the staff console into this script."
+  value       = cloudflare_workers_script.admin.script_name
+}
+
+output "admin_url" {
+  description = "Where the staff console is served."
+  value       = "https://${cloudflare_workers_custom_domain.admin.hostname}"
+}

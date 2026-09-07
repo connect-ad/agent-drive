@@ -45,12 +45,48 @@ function periodCounter(value: number, workspace: WorkspaceRow, now: number): num
   return now >= workspace.period_reset_at ? 0 : value;
 }
 
+/**
+ * Whether an unpaid account may still do this (14 PART 29.4).
+ *
+ * Writes stop, reads continue. Somebody whose card expired must still be able
+ * to list and download their own files - locking them out of their data to
+ * chase a payment turns a billing problem into a support crisis and a
+ * reputation for holding data hostage. It also costs nothing to allow: reads
+ * are the cheap half.
+ *
+ * Reported as a limit rather than an authorization failure, deliberately. The
+ * credential is fine and the caller is who they say they are; what has run out
+ * is the account's standing, which is the same category of thing as running out
+ * of storage and reads better in a client that already handles that.
+ */
+function assertBillingAllowsWrite(billingStatus: string, demand: QuotaDemand): void {
+  if (billingStatus === "active") return;
+
+  const writing =
+    (demand.bytes !== undefined && demand.bytes > 0) ||
+    (demand.files !== undefined && demand.files > 0);
+  if (!writing) return;
+
+  throw new ApiError(
+    "LIMIT_EXCEEDED",
+    billingStatus === "past_due"
+      ? "This account has an unpaid invoice. New uploads are paused until it is settled; your files remain readable."
+      : "This account's subscription has ended. New uploads are paused; your files remain readable.",
+    { details: { limit: "billing", status: billingStatus } }
+  );
+}
+
 export function assertWithinQuota(
   workspace: WorkspaceRow,
   limits: PlanLimits,
   demand: QuotaDemand,
-  now: number
+  now: number,
+  billingStatus = "active"
 ): void {
+  // Before any counter. An account that may not write at all should be told
+  // that, not told it is near a storage limit it will never be allowed to fill.
+  assertBillingAllowsWrite(billingStatus, demand);
+
   const requests = periodCounter(workspace.requests_period, workspace, now);
   if (requests >= limits.requestsPerPeriod) {
     throw exceeded(

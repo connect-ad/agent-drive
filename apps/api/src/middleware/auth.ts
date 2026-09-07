@@ -34,6 +34,7 @@ import {
 } from "../auth/authenticate";
 import { assertScope, type KeyScope, type ScopeOp } from "../auth/scopes";
 import { revokeSessionsBefore } from "../db/user-lookup";
+import { findOrgForWorkspace } from "../billing/organizations";
 import { WorkspaceMembers } from "../db/members";
 import type { JwksCache } from "../auth/firebase";
 import { extractBearerToken, isApiKeyToken } from "../lib/keys";
@@ -232,9 +233,18 @@ export async function withAuth(
     assertScope(scope, requirement.op, requirement.path);
   }
 
-  // 5.
+  // 5. Quota, and the account's standing with us (14 PART 29.4). The billing
+  // row is only read for a request that intends to write - a read-only call
+  // must not pay for a join it cannot be refused by.
   const limits = limitsFor(workspace.plan_override, workspace.org_plan);
-  assertWithinQuota(workspace, limits, requirement.demand ?? {}, now);
+  const demand = requirement.demand ?? {};
+  const intendsWrite =
+    (demand.bytes !== undefined && demand.bytes > 0) ||
+    (demand.files !== undefined && demand.files > 0);
+  const billingStatus = intendsWrite
+    ? ((await findOrgForWorkspace(deps.db, identity.workspaceId))?.billingStatus ?? "active")
+    : "active";
+  assertWithinQuota(workspace, limits, demand, now, billingStatus);
 
   // Record that the key worked - after authorization, so a rejected request
   // does not update it, and off the response path, because this is a D1 write

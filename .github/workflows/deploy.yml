@@ -237,6 +237,8 @@ jobs:
           # signs customer file URLs, the other unlocks Terraform state.
           R2_FILES_ACCESS_KEY_ID: ${{ secrets.R2_FILES_ACCESS_KEY_ID }}
           R2_FILES_SECRET_ACCESS_KEY: ${{ secrets.R2_FILES_SECRET_ACCESS_KEY }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
         run: |
           set -euo pipefail
 
@@ -303,6 +305,22 @@ jobs:
 
           push_r2 r2_access_key_id     R2_ACCESS_KEY_ID     R2_FILES_ACCESS_KEY_ID
           push_r2 r2_secret_access_key R2_SECRET_ACCESS_KEY R2_FILES_SECRET_ACCESS_KEY
+
+          # Billing needs both or neither. One without the other is the worst
+          # state to deploy: the portal would open and take a card, and the
+          # webhook confirming the payment would be rejected as unsigned.
+          if [ -n "${STRIPE_SECRET_KEY:-}" ] && [ -n "${STRIPE_WEBHOOK_SECRET:-}" ]; then
+            push_env STRIPE_SECRET_KEY STRIPE_SECRET_KEY
+            push_env STRIPE_WEBHOOK_SECRET STRIPE_WEBHOOK_SECRET
+          elif [ -n "${STRIPE_SECRET_KEY:-}" ] || [ -n "${STRIPE_WEBHOOK_SECRET:-}" ]; then
+            echo "::error::Only one of STRIPE_SECRET_KEY / STRIPE_WEBHOOK_SECRET is set on the $ENVIRONMENT_NAME environment. Set both or neither."
+            exit 1
+          elif [ "$WORKSPACE" = "dev" ]; then
+            echo "::warning::No Stripe secrets for dev. Billing routes refuse; everything else deploys."
+          else
+            echo "::error::No Stripe secrets available for prod. Billing would refuse on a live deployment."
+            exit 1
+          fi
 
           if [ "$MISSING_R2" = "1" ]; then
             echo "R2_SIGNING_CONFIGURED=false" >> "$GITHUB_ENV"

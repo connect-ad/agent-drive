@@ -17,6 +17,8 @@ import { createWorkspace } from "./routes/create-workspace";
 import { createWorkspaceForUser, listWorkspaces } from "./routes/workspaces";
 import { createAgent, deleteAgent, getAgent, listAgents, patchAgent } from "./routes/agents";
 import { createKey, listKeys, revokeKey } from "./routes/keys";
+import { createPortalSession, getBilling } from "./routes/billing";
+import { handleStripeWebhook } from "./routes/stripe-webhook";
 import {
   changeMemberRole,
   inviteMember,
@@ -89,6 +91,16 @@ export interface Env {
    * cannot be driven from the prod dashboard or the other way round.
    */
   CORS_ALLOWED_ORIGINS?: string;
+
+  /**
+   * Stripe, pushed by CI via `wrangler secret put`. Absent means billing
+   * refuses rather than running half-configured - the same fail-closed shape as
+   * a missing Turnstile secret.
+   */
+  STRIPE_SECRET_KEY?: string;
+  STRIPE_WEBHOOK_SECRET?: string;
+  /** Where Stripe's hosted portal returns the customer. Public configuration. */
+  DASHBOARD_URL?: string;
 }
 
 export interface HealthReport {
@@ -253,6 +265,35 @@ export default {
       }
 
       const segments = url.pathname.split("/").filter((segment) => segment !== "");
+
+      // Stripe's webhook. Public by necessity - Stripe holds no credential of
+      // ours - and authenticated instead by the signature over the raw body,
+      // which is checked before a single field is read.
+      if (route === "POST /v1/webhooks/stripe") {
+        return await handleStripeWebhook(request, {
+          db: env.DB,
+          secretKey: env.STRIPE_SECRET_KEY,
+          webhookSecret: env.STRIPE_WEBHOOK_SECRET,
+          now: Date.now(),
+        });
+      }
+
+      if (segments[0] === "v1" && segments[1] === "billing") {
+        const billingDeps = {
+          db: env.DB,
+          secretKey: env.STRIPE_SECRET_KEY,
+          returnUrl: `${env.DASHBOARD_URL ?? "https://app-dev.agentdisk.io"}/app`,
+        };
+        if (segments[2] === undefined && request.method === "GET") {
+          return await authed({ op: null }, (authCtx) => getBilling(authCtx, billingDeps));
+        }
+        if (segments[2] === "portal-session" && request.method === "POST") {
+          return await authed({ op: null }, (authCtx) =>
+            createPortalSession(authCtx, billingDeps)
+          );
+        }
+        throw new ApiError("NOT_FOUND", "No such route.");
+      }
 
       // Members. Every one of these is owner-only, enforced inside the handlers
       // rather than by a scope op: an agent key holds no role at all, so there

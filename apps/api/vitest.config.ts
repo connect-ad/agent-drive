@@ -26,6 +26,10 @@ export default defineConfig(async () => {
             // value is irrelevant - every test stubs the siteverify call - but
             // it has to be present or the route fails closed before its gates.
             TURNSTILE_SECRET_KEY: "test-turnstile-secret",
+            // Billing refuses to run without both, so the webhook tests
+            // would never reach the signature check they exist to exercise.
+            STRIPE_SECRET_KEY: "sk_test_dummy",
+            STRIPE_WEBHOOK_SECRET: "whsec_test_secret",
             // Presigning needs a key pair to produce a signature at all. These
             // are fake and never verified by anything - the tests assert the
             // URL's shape and scope, not that R2 would accept it - but without

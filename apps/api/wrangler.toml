@@ -58,8 +58,8 @@ dead_letter_queue = "agentdisk-dev-jobs-dlq"
 # hour fires at the same instant; an off-minute avoids that thundering herd for
 # no cost. The purge only acts on files past their 24-hour grace period, so the
 # exact minute is irrelevant to correctness.
-[[env.dev.triggers.crons]]
-cron = "17 * * * *"
+[env.dev.triggers]
+crons = ["17 * * * *"]
 
 # --------------------------------------------------------------- prod ---
 [env.prod]
@@ -89,5 +89,5 @@ max_batch_size = 10
 max_retries = 5
 dead_letter_queue = "agentdisk-prod-jobs-dlq"
 
-[[env.prod.triggers.crons]]
-cron = "17 * * * *"
+[env.prod.triggers]
+crons = ["17 * * * *"]

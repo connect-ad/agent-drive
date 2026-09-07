@@ -79,6 +79,53 @@ export class WorkspaceScopedFiles extends WorkspaceScoped {
    * `limit + 1` rows are fetched so the caller can tell "this page is full"
    * from "there is another page" without a second COUNT query.
    */
+  /**
+   * Search by name, path, caption or tag, inside a path prefix.
+   *
+   * Two things this must never do, and both are the reason it lives here rather
+   * than being assembled in a route. The prefix is applied in the same
+   * statement as the match, so a query can never surface a file outside the
+   * caller's scope by matching it - "filter afterwards" is how that leaks. And
+   * the search term is escaped for LIKE, so a query containing `%` searches for
+   * a literal percent sign rather than everything.
+   */
+  async search(
+    pathPrefix: string,
+    term: string,
+    limit: number,
+    cursor: string | null
+  ): Promise<FileRow[]> {
+    const prefixPattern = `${escapeLikePattern(pathPrefix)}%`;
+    const termPattern = `%${escapeLikePattern(term)}%`;
+
+    const sql = `SELECT DISTINCT f.* FROM files f
+                   LEFT JOIN file_tags t ON t.file_id = f.id
+                  WHERE f.workspace_id = ?
+                    AND f.path LIKE ? ESCAPE '\\'
+                    AND f.deleted_at IS NULL
+                    AND (f.name LIKE ? ESCAPE '\\'
+                      OR f.path LIKE ? ESCAPE '\\'
+                      OR f.caption LIKE ? ESCAPE '\\'
+                      OR t.tag LIKE ? ESCAPE '\\')
+                    ${cursor === null ? "" : "AND f.id < ?"}
+                  ORDER BY f.id DESC
+                  LIMIT ?`;
+
+    const binds: (string | number)[] = [
+      this.workspaceId,
+      prefixPattern,
+      termPattern,
+      termPattern,
+      termPattern,
+      termPattern,
+    ];
+    if (cursor !== null) binds.push(cursor);
+    binds.push(limit);
+
+    const result = await this.db.prepare(sql).bind(...binds).all<FileRow>();
+    return result.results ?? [];
+  }
+
   async listPage(pathPrefix: string, limit: number, cursor: string | null): Promise<FileRow[]> {
     const like = `${escapeLikePattern(pathPrefix === "/" ? "" : pathPrefix)}%`;
     const statement =

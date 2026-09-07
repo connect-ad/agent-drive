@@ -46,6 +46,7 @@ import {
   listFiles,
   patchFile,
   restoreFile,
+  searchFiles,
 } from "./routes/files";
 import {
   copyFile,
@@ -266,6 +267,12 @@ export default {
       // must never acquire authority over the person who issued it.
       if (route === "POST /v1/me/logout-all") {
         return await authed({ op: null }, logoutAll);
+      }
+
+      // Search. `list` rather than `read`: a key that may not enumerate must
+      // not be able to enumerate one query at a time.
+      if (route === "GET /v1/search") {
+        return await authed({ op: "list" }, searchFiles);
       }
 
       if (route === "GET /v1/whoami") {

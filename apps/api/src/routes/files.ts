@@ -404,6 +404,53 @@ export async function completeFile(ctx: AuthContext, request: Request, fileId: s
   });
 }
 
+/**
+ * GET /v1/search - 10.5 level 1.
+ *
+ * Name, path, caption and tag. Not file contents: that needs an index this
+ * product does not build yet, and pretending otherwise would return confidently
+ * empty results for a query somebody had every reason to expect matches for.
+ *
+ * The scope prefix is applied inside the same statement as the match, not as a
+ * filter afterwards. Filtering afterwards is how a search leaks the existence
+ * of files outside a caller's scope - the count, the pagination, and the timing
+ * all still carry information even when the rows are dropped.
+ */
+export async function searchFiles(ctx: AuthContext, request: Request): Promise<Response> {
+  const url = new URL(request.url);
+  const term = (url.searchParams.get("q") ?? "").trim();
+  if (term === "") {
+    throw validationError("A search needs a q parameter.");
+  }
+
+  const rawLimit = url.searchParams.get("limit");
+  let limit = DEFAULT_PAGE_SIZE;
+  if (rawLimit !== null) {
+    const parsed = Number(rawLimit);
+    if (!Number.isInteger(parsed) || parsed < 1 || parsed > MAX_PAGE_SIZE) {
+      throw validationError(`limit must be an integer between 1 and ${MAX_PAGE_SIZE}.`);
+    }
+    limit = parsed;
+  }
+
+  // Searching is a listing, and a key that may not enumerate must not be able
+  // to enumerate one query at a time.
+  assertScope(ctx.scope, "list");
+  const cursor = url.searchParams.get("cursor");
+
+  const rows = await ctx.db.files.search(ctx.scope.pathPrefix, term, limit + 1, cursor);
+  const page = rows.slice(0, limit);
+  const nextCursor = rows.length > limit ? (page[page.length - 1]?.id ?? null) : null;
+
+  return json({
+    files: page.map((row) => toFileResource(row)),
+    nextCursor,
+    // Named so a caller does not assume contents were searched and conclude
+    // from an empty result that a file does not exist.
+    searchedFields: ["name", "path", "caption", "tags"],
+  });
+}
+
 /** GET /v1/files/:id */
 export async function getFile(ctx: AuthContext, _request: Request, fileId: string): Promise<Response> {
   const row = await requireFile(ctx, fileId, "read");

@@ -26,6 +26,7 @@ import {
   getFile,
   listFiles,
   patchFile,
+  searchFiles,
 } from "../routes/files";
 import { copyFile, createFolder, moveFile } from "../routes/folders";
 
@@ -124,7 +125,7 @@ export const TOOLS: ToolDefinition[] = [
       const cursor = str(args, "cursor");
       if (cursor !== undefined) query.set("cursor", cursor);
       if (typeof args.limit === "number") query.set("limit", String(args.limit));
-      return viaHandler(ctx, listFiles, jsonRequest("GET", `/v1/files?${query.toString()}`));
+      return viaHandler(ctx, searchFiles, jsonRequest("GET", `/v1/search?${query.toString()}`));
     },
   },
 

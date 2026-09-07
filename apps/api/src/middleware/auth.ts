@@ -62,11 +62,16 @@ export interface AuthContext {
    */
   members: WorkspaceMembers;
   /**
-   * Somewhere to put work that must outlive the response — the audit write,
-   * mainly. Optional because the middleware is also driven directly from tests,
-   * where there is no ExecutionContext to hand.
+   * Somewhere to put work that must outlive the response — the audit write and
+   * webhook fan-out. Optional because the middleware is also driven directly
+   * from tests, where there is no ExecutionContext to hand.
    */
   waitUntil?: (promise: Promise<unknown>) => void;
+  /**
+   * The jobs queue, for work a customer's slow endpoint must not be able to
+   * hold up. Optional for the same reason as `waitUntil`.
+   */
+  queue?: Queue;
   /**
    * The few actions that are about the signed-in person rather than the
    * workspace. Same discipline as `db` and `storage`: the user ID is bound
@@ -150,6 +155,8 @@ export interface WithAuthDeps {
   now?: number;
   /** Somewhere to put the last_used_at write so it stays off the response path. */
   waitUntil?: (promise: Promise<unknown>) => void;
+  /** The jobs queue, passed through to handlers that fan out webhooks. */
+  queue?: Queue;
   /**
    * What the human path needs: somewhere to cache Google's JWKS, and the
    * Firebase project whose tokens this deployment accepts. Null when
@@ -285,6 +292,7 @@ export async function withAuth(
     storage: new WorkspaceScopedStorage(deps.files, deps.signing, identity.workspaceId),
     members: new WorkspaceMembers(deps.db, identity.workspaceId),
     waitUntil: deps.waitUntil,
+    queue: deps.queue,
     self:
       identity.kind === "firebase_user"
         ? {

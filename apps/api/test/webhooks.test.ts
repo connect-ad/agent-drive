@@ -85,15 +85,13 @@ describe("registering", () => {
     expect(res.status).toBe(400);
   });
 
-  it("says plainly that delivery is not running yet", async () => {
-    // Otherwise the first sign is an integration waiting for a call that never
-    // comes, which reads as a bug in their code rather than a gap in ours.
+  it("reports that delivery is running", async () => {
     const { token } = await seedApiKey({ workspaceId: WORKSPACE_A, ops: ["list"] });
     const body = (await (await send("/v1/webhooks", token, "GET")).json()) as {
       deliveryEnabled: boolean;
       availableEvents: string[];
     };
-    expect(body.deliveryEnabled).toBe(false);
+    expect(body.deliveryEnabled).toBe(true);
     expect(body.availableEvents).toContain("file.created");
   });
 });

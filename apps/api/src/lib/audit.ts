@@ -23,6 +23,7 @@
  */
 
 import { newId } from "./ids";
+import { enqueueWebhookEvents } from "../jobs/webhook-delivery";
 import type { AuthContext } from "../middleware/auth";
 
 /** Dotted, resource-first, past tense: `file.created`, `key.revoked`. */
@@ -96,4 +97,44 @@ export function audit(
   if (ctx.waitUntil) ctx.waitUntil(write);
   // Without a waitUntil the promise is still created and still runs; it simply
   // is not kept alive past the response. Deliberately not awaited either way.
+}
+
+/**
+ * Record an event *and* fan it out to the customer's webhooks.
+ *
+ * The two travel together because they answer the same question — "what just
+ * happened here" — and separating them is how one gets updated and the other
+ * quietly does not. Both are best-effort and both stay off the response path:
+ * a customer's endpoint being unreachable must not fail somebody's upload.
+ */
+export function auditAndNotify(
+  ctx: AuthContext,
+  request: Request,
+  action: AuditAction,
+  details: AuditDetails & { webhookData?: Record<string, unknown> } = {}
+): void {
+  audit(ctx, request, action, details);
+
+  if (ctx.queue === undefined || details.webhookData === undefined) return;
+
+  const fanOut = enqueueWebhookEvents(
+    ctx.db.webhooks,
+    ctx.queue,
+    ctx.workspaceId,
+    action,
+    details.webhookData,
+    ctx.now
+  ).catch((err: unknown) => {
+    console.log(
+      JSON.stringify({
+        level: "warn",
+        requestId: ctx.requestId,
+        message: "webhook fan-out failed",
+        action,
+        reason: err instanceof Error ? err.message : String(err),
+      })
+    );
+  });
+
+  if (ctx.waitUntil) ctx.waitUntil(fanOut);
 }

@@ -19,6 +19,7 @@ import { createAgent, deleteAgent, getAgent, listAgents, patchAgent } from "./ro
 import { createKey, listKeys, revokeKey } from "./routes/keys";
 import { handleMcp } from "./mcp/server";
 import { purgeExpiredFiles, reconcileCounters } from "./jobs/purge";
+import { handleDelivery, isWebhookEvent } from "./jobs/webhook-delivery";
 import { listActivity } from "./routes/activity";
 import {
   createWebhook,
@@ -212,6 +213,7 @@ export default {
             signing: () => signingConfig(env),
             requestId: id,
             waitUntil: (promise) => ctx.waitUntil(promise),
+            queue: env.JOBS,
             firebase: firebaseConfig(env),
           },
           requirement,
@@ -549,27 +551,68 @@ export default {
   },
 
   /**
-   * Queue consumer.
+   * Queue consumer — webhook delivery.
    *
-   * wrangler.toml declares this Worker as a consumer of agentdisk-dev-jobs, and
-   * Cloudflare refuses that registration unless a `queue` handler is exported -
-   * so this is required for the deploy to succeed, not optional scaffolding.
+   * Deliveries run here rather than inline on the request that caused them, and
+   * that is the entire reason the queue exists. A customer's endpoint being
+   * slow, down, or hostile must not slow down or fail the upload that triggered
+   * the event: the person uploading has no relationship with whoever runs that
+   * endpoint, and making them wait on it borrows somebody else's reliability
+   * problem.
    *
-   * Nothing produces messages yet. Real handlers (webhook delivery, async
-   * processing, reconciliation) belong in src/jobs/. Until then this retries
-   * rather than acks: silently dropping a message that something unexpectedly
-   * enqueued would be worse than letting it redeliver and eventually land in
-   * agentdisk-dev-jobs-dlq, where it is visible.
+   * Each message is acked or retried individually rather than with
+   * `retryAll()`. One unreachable endpoint in a batch of ten must not cause the
+   * other nine to be delivered a second time - at-least-once is a promise we
+   * keep, but repeating it needlessly is just noise in somebody's log.
    */
-  async queue(batch: MessageBatch<unknown>, _env: Env): Promise<void> {
-    console.log(
-      JSON.stringify({
-        level: "warn",
-        message: "Queue message received before any handler exists.",
-        queue: batch.queue,
-        count: batch.messages.length,
-      })
-    );
-    batch.retryAll();
+  async queue(batch: MessageBatch<unknown>, env: Env): Promise<void> {
+    const now = Date.now();
+
+    for (const message of batch.messages) {
+      if (!isWebhookEvent(message.body)) {
+        // Nothing else produces messages today. Acked rather than retried: a
+        // message we cannot parse will not become parseable on the third try,
+        // and letting it cycle to the dead-letter queue hides real failures
+        // behind noise.
+        console.log(
+          JSON.stringify({
+            level: "warn",
+            message: "unrecognised queue message, discarded",
+            queue: batch.queue,
+          })
+        );
+        message.ack();
+        continue;
+      }
+
+      try {
+        const { ack, outcome } = await handleDelivery(env.DB, message.body, now);
+        console.log(
+          JSON.stringify({
+            level: outcome?.delivered === false ? "warn" : "info",
+            message: "webhook delivery",
+            webhookId: message.body.webhookId,
+            event: message.body.event,
+            status: outcome?.status ?? null,
+            delivered: outcome?.delivered ?? true,
+            // The URL is not logged: it is the customer's, and their internal
+            // hostnames are their business.
+            reason: outcome?.reason ?? null,
+          })
+        );
+        if (ack) message.ack();
+        else message.retry();
+      } catch (err) {
+        console.log(
+          JSON.stringify({
+            level: "error",
+            message: "webhook delivery threw",
+            webhookId: message.body.webhookId,
+            reason: err instanceof Error ? err.message : String(err),
+          })
+        );
+        message.retry();
+      }
+    }
   },
 } satisfies ExportedHandler<Env>;

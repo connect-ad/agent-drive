@@ -166,10 +166,8 @@ export default function Webhooks() {
       ) : null}
 
       {!loading && !deliveryEnabled ? (
-        <Alert tone="warn" title="Deliveries are not running yet">
-          Endpoints registered here are stored and will receive events once delivery ships.
-          Nothing is being sent to them today — said plainly so an integration is not left
-          waiting on a call that cannot arrive.
+        <Alert tone="warn" title="Deliveries are not running">
+          Endpoints registered here are stored, but nothing is being sent to them.
         </Alert>
       ) : null}
 

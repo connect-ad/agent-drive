@@ -111,9 +111,7 @@ export async function listWebhooks(ctx: AuthContext): Promise<Response> {
   return json({
     webhooks: rows.map(toResource),
     availableEvents: WEBHOOK_EVENTS,
-    // Said out loud rather than left to be discovered by an integration that
-    // waits for a delivery that never comes.
-    deliveryEnabled: false,
+    deliveryEnabled: true,
   });
 }
 

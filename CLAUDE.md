@@ -13,9 +13,9 @@ task.
 | Path | Holds | Rule |
 |---|---|---|
 | `CLAUDE.md` | This route and the catalog | Source of truth for *where things are*. Not a duplicate of the specs. |
-| `docs/design/` | The specification, `NN-<slug>.md` | 11 documents, PART 1–26. The product's design authority — but see the precedence rule below. |
+| `docs/design/` | The specification, `NN-<slug>.md` | 17 documents, PART 1–30. The product's design authority — but see the precedence rule below. |
 | `design-system/` | Upstream mirror of the Claude Design project | **Read-only.** Byte-identical to the remote (96/96). Changes go into Claude Design, then re-import — never edit here. |
-| `apps/api/` | The Cloudflare Worker: REST + MCP, one deployable | Auth is built: API keys, the authorization chain, the Turnstile-gated workspace bootstrap. Storage core is in progress. |
+| `apps/api/` | The Cloudflare Worker: REST + MCP, one deployable | Both surfaces are built and share one authorization chain. MCP tools call the REST handlers rather than reimplementing them, so the two cannot drift. |
 | `infra/terraform/` | All infrastructure as code | One root config, one module, **one workspace per environment** (`dev`, `prod`). No `environments/` directories — see the workspace note below. |
 | `.github/workflows/` | CI and deployment pipelines | `ci.yml` gates PRs; `deploy-dev.yml`/`deploy-prod.yml` are thin callers of the shared `deploy.yml`, so prod can never drift from dev. `deploy-web-dev.yml` is separate on purpose — the dashboard is assets-only and shares none of the API's Terraform-output, migration or secret steps. |
 | `apps/web/` | The dashboard SPA, live at `app-dev.agentdisk.io` | `src/components/` is vendored from `design-system/`; `src/components/index.js` is generated. Hand-written code lives in `src/routes/` and `src/components-local/`. Deployed as a Workers static-assets Worker, not Pages — see [013](backlog/013-deploy-dashboard.md). |
@@ -170,9 +170,9 @@ provenance), `ApiKeyDisplay` (show-once), `PermissionSelector` (least privilege)
 | 005 | [MVP-1 screens](backlog/005-mvp1-screens.md) | Done |
 | 006 | [Upstream the Drawer](backlog/006-upstream-drawer.md) | Open — design-system gap |
 | 007 | [Browser-verify the screens](backlog/007-browser-verify-screens.md) | Open — 4 of 31 rendered, no state variants |
-| 008 | [Backend: D1, R2, REST, MCP](backlog/008-backend.md) | Open — REST storage core built; MCP and sessions remain |
-| 009 | [Wire screens to the API](backlog/009-wire-screens-to-api.md) | Open — carries an unresolved scope-naming conflict |
-| 010 | [Test suite](backlog/010-test-suite.md) | Open — `apps/api` covered; web and e2e are not |
+| 008 | [Backend: D1, R2, REST, MCP](backlog/008-backend.md) | Done — REST, MCP and Firebase auth all shipped |
+| 009 | [Wire screens to the API](backlog/009-wire-screens-to-api.md) | Done — no fixture data remains |
+| 010 | [Test suite](backlog/010-test-suite.md) | Open — 370 API tests; web and e2e still uncovered |
 | 011 | [Rename `Worlflow.md`](backlog/011-rename-workflow-file.md) | Open — trivial |
 | 012 | [Put the project under git](backlog/012-initialise-git.md) | Done |
 | 013 | [Deploy the dashboard](backlog/013-deploy-dashboard.md) | Done — `app-dev.agentdisk.io` |
@@ -183,104 +183,80 @@ provenance), `ApiKeyDisplay` (show-once), `PermissionSelector` (least privilege)
 
 ## Status
 
-**The UI is built and deployed. The pipeline is built. The backend has auth and
-a working storage core.**
+**Dev is a working product.** A stranger can sign up with Google, GitHub or
+email, land in a workspace made for them, create an agent, mint a scoped key,
+upload files from the browser or the API, invite a colleague, connect an MCP
+client, and open Stripe's billing portal. Every one of those was run against the
+live deployment rather than inferred from the code — see
+[docs/STATUS.md](docs/STATUS.md) for what was verified and how, and
+[docs/USER_TESTING_GUIDE.md](docs/USER_TESTING_GUIDE.md) for the walkthrough a
+person can follow.
 
-`cd apps/web && npm install && npm run build` is clean — 89 modules, 15 route
-files, ~3,150 lines of app source. All 31 buildable screens from doc 03 PART 8
-are implemented: marketing, the five auth screens, the full workspace app, the
-MVP-1 surfaces, and the error pages. Doc 03 §8.31's three intentionally-unbuilt
-screens were skipped as specified.
+```
+apps/api    370 tests across 25 files · typecheck clean · lint clean
+apps/web    111 modules · build clean
+Worker      226 KiB gzipped, against Cloudflare's 1 MB limit
+```
 
-Every screen composes design-system components exclusively and styles only with
-`var(--*)` tokens — verified: zero raw hex, zero imports bypassing the barrel,
-and no px carrying spacing or sizing. See [Skill/1 Build](Skill/1%20Build.md)
-for what the adherence config actually checks, and why two `1px` hairlines are
-not violations. Every sidebar nav item resolves to a real route.
+**Roadmap step 27 is met**: a 2 MB file round-tripped through
+`agentdisk-dev-files` via a presigned PUT and GET, SHA-256 identical in and out.
 
-Screens now run in a browser: four were rendered against the live dev URL and
-look right. [007](backlog/007-browser-verify-screens.md) stays open — 4 of 31
-routes, none of the `state` variants. Every screen still runs on **local mock
-data** ([009](backlog/009-wire-screens-to-api.md)).
+Live on three hostnames: `api-dev.agentdisk.io` (REST + MCP at `/mcp`),
+`mcp-dev.agentdisk.io`, `app-dev.agentdisk.io`. The full loop runs unattended:
+push to `dev` → verify → `terraform apply` → migrations → `wrangler deploy` →
+smoke test. **Prod has never been applied** — the `prod` workspace is empty,
+gated behind a PR into `main` plus required-reviewer approval.
 
-Security behaviour is implemented rather than decorative: generic login failure
-with a lockout countdown, non-committal forgot-password, reveal-once secrets
-requiring explicit acknowledgment, MCP snippets defaulting to a placeholder key,
-and webhook failure detail that never renders headers.
+### What exists
 
-**Dev is live**, on three hostnames: `api-dev.agentdisk.io` (REST),
-`mcp-dev.agentdisk.io`, and `app-dev.agentdisk.io` (the dashboard). The full
-loop runs unattended: push to `dev` → verify → `terraform apply` → migrations →
-`wrangler deploy` → smoke test.
+Human authentication is Firebase — Google, GitHub, email/password and email-link
+— verified in the Worker with cached JWKS and Web Crypto, because the Admin SDK
+is Node-only and does not run here. Agents are unaffected: they hold API keys and
+never touch Firebase.
 
-The API answers `/v1/healthz` unauthenticated and everything else behind the
-full authorization chain: the file surface (`POST /v1/files` inline and
-presigned, `complete`, list, get, `download`, `PATCH`, `move`, `copy`, `DELETE`,
-`restore`), the folder surface (`POST`/`GET /v1/folders`, `DELETE` with
-`?recursive=true`), and `/v1/whoami`. `POST /v1/workspaces` is live and gated by
-real Turnstile verification — it is the only endpoint that creates resources
-without a credential, and it refuses outright rather than running ungated if the
-secret is ever missing.
+One billing account owns many workspaces; membership is **per workspace**, so
+inviting somebody into one client's workspace does not hand them the one beside
+it on the same bill. Roles are owner / admin / reader.
 
-`app-dev.agentdisk.io/sandbox` is the one screen that talks to the real API, and
-the only way to obtain a first credential: the bootstrap endpoint is
-Turnstile-gated and a challenge has to be solved by a browser. Its site key
-comes from `terraform output` at build time, so the widget the dashboard renders
-cannot drift from the widget the API verifies against.
+The REST surface covers files (both upload paths, move, copy, soft delete,
+restore), folders, search, agents, keys, members, webhooks, activity and billing.
+The MCP server exposes ten tools at `/mcp` in the same Worker — each one calls
+the REST handler that already does the work, so the two surfaces are literally
+the same code and cannot drift in what they allow.
 
-**Presigned upload and download need an R2 signing credential that dev does not
-have yet.** Terraform can create it (`manage_r2_signing_token`), but that
-requires giving the deploy token API-token minting rights — see the rule above —
-so it is off by default and the deploy takes the credential from the GitHub
-Environment instead. Missing is a warning in dev and fatal in prod; the inline
-upload path works without it, because it writes through the binding.
+An hourly cron purges soft-deleted objects past their 24-hour grace period and
+reconciles the usage counters against the rows.
 
-Twelve resources exist in the `dev` workspace (D1, R2, KV, jobs queue + DLQ, two
-Workers, three custom domains, a Turnstile widget, and the workspace guard),
-with state in
-`agentdisk-tfstate` under `dev/terraform.tfstate` and native R2 locking
-confirmed working. **Prod has never been applied** — the `prod` workspace is
-empty, gated behind a PR into `main` plus the required-reviewer approval.
+### What is not built
 
-Faults found only by running it, not by planning it: `wrangler deploy` refuses a
-declared queue consumer when the Worker exports no `queue` handler; Wrangler
-silently enables `workers.dev`, publishing a second public hostname that
-bypasses the custom domains; `cloudflare_d1_database` sends
-`read_replication: null` on update, so apply succeeds once and fails on every
-run after; `cloudflare_turnstile_widget` returns its `domains` list sorted, so
-declaring it in any other order made every plan propose an in-place update that
-round-tripped the widget's secret; and a Worker owning static assets needs `assets`/`keep_assets` in
-`ignore_changes` or a routine plan proposes deleting the deployed site. All are
-fixed and commented where they bite.
+- **Webhook delivery.** Endpoints register and store; nothing is sent to them.
+  The screen says so rather than leaving an integration waiting.
+- **The admin panel** (`apps/admin`, doc 14 PART 27/28), and the editable plans
+  that depend on it.
+- **Multipart upload** and **signed permanent links**.
+- **Full-text search inside files.** Search covers names, paths, captions and
+  tags, and the response names the fields it looked at.
+- **`openapi.yaml`**, and the generated docs site.
+- **Production.**
 
-Doc numbering: `docs/design/11-backend-implementation-prompt.md` is referenced by
-docs 12 and 13, and **doc 08 is that prompt under its original number** — no
-document is actually missing. See [the implementation plan](docs/IMPLEMENTATION_PLAN.md).
+### Faults found only by running it
 
-One known deviation from the design docs, deliberate and requiring a doc
-correction under the precedence rule: doc 07 PART 18.4 assigns `app.` to
-Cloudflare Pages, but the dashboard ships as a Workers static-assets Worker
-([013](backlog/013-deploy-dashboard.md)).
+`wrangler deploy` refuses a declared queue consumer when the Worker exports no
+`queue` handler; Wrangler silently enables `workers.dev`, publishing a second
+public hostname that bypasses the custom domains; `cloudflare_d1_database` sends
+`read_replication: null` on update, so apply succeeds once and fails every run
+after; `cloudflare_turnstile_widget` returns its `domains` list sorted, so
+declaring it in another order made every plan round-trip the widget's secret; a
+Worker owning static assets needs `assets`/`keep_assets` in `ignore_changes` or a
+routine plan proposes deleting the deployed site; and `firebase deploy --only
+auth` silently resets `passwordRequired`, turning email-link sign-in off on every
+run. All are fixed and commented where they bite.
 
-**The product is AgentDisk, matching `agentdisk.io`.** It was written as
-"AgentDrive" throughout until Sept 2026; that name is gone from every file this
-repo owns, along with the pre-rename `agentdrive.ai`/`agentdrive.dev` domains
-the landing page still advertised. Where a design doc contrasts the old domain
-with the new one to explain *why* something changed, the old name is left
-standing — rewriting those sentences would destroy the very distinction they
-exist to draw. The one place still saying "AgentDrive" is
-[`design-system/`](design-system/), which is a byte-verified mirror and must be
-fixed upstream in Claude Design and re-imported — see
-[015](backlog/015-rename-in-design-system.md).
-
-Next: an R2 signing credential, which is the only thing between here and
-roadmap step 27's presigned round-trip; then the human half of
-[008 · Backend](backlog/008-backend.md) — sessions, refresh rotation, CSRF —
-and the MCP surface. Tracked in
-[docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md).
+Two more cost real time and are worth recognising on sight, both recorded in
+[Skill/1 Build](Skill/1%20Build.md): an R2 `AccessDenied` means the credential is
+valid and its *permissions* moved, not that the secret is wrong; and
+`Credential access key has length 64, should be 32` means an Access Key ID field
+holds a Secret Access Key.
 
 Every security-critical behaviour in the storage core was mutation-tested: 22
-deliberate breaks across two rounds, each one confirmed to turn the suite red.
-Six survived their first pass and became either a missing test or, twice, a
-mutation that changed nothing observable because a second check still enforced
-the property.
+deliberate breaks across two rounds, each confirmed to turn the suite red.

@@ -1,6 +1,6 @@
 # 008 · Backend — D1, R2, REST API, MCP server
 
-**Status:** Open — REST storage core and auth are built and deployed to dev;
+**Status:** Done (Sept 2026) — REST storage core and auth are built and deployed to dev;
 MCP and the human-session half remain
 
 Built and live on `api-dev.agentdisk.io`: API keys with the full authorization

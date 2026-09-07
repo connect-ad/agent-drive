@@ -1,6 +1,6 @@
 # 009 · Wire the screens to the API
 
-**Status:** Open — blocked by [008](008-backend.md)
+**Status:** Done (Sept 2026) — blocked by [008](008-backend.md)
 
 Every screen currently runs on local mock data. There is no API client.
 

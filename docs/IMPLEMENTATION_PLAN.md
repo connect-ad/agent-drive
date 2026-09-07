@@ -4,9 +4,9 @@ Planning artifact for `docs/design/08-claude-code-prompt.md`. Short by design;
 updated as phases complete. The design documents remain the authority — this
 only records task breakdown and status.
 
-**Note on doc numbering:** docs 12 and 13 hand off to
-`11-backend-implementation-prompt.md`, which does not exist in this repo. Doc 08
-is that prompt under its original number. No document is actually missing.
+**Note on doc numbering:** `11-backend-implementation-prompt.md` does exist,
+alongside doc 08 which covers the same ground under its original number. Nothing
+is missing.
 
 ---
 
@@ -16,19 +16,26 @@ is that prompt under its original number. No document is actually missing.
 |---|---|---|
 | 0 | Foundation | **Done** — superseded by the infra work |
 | 1 | Data layer — schema, scoped repositories, isolation tests | **Done** |
-| 2 | Authentication — API keys, sessions, authz middleware | **API keys + bootstrap done**; sessions next |
-| 3 | Storage core — R2 presigned upload/download, file/folder CRUD | Not started |
-| 4 | REST API — full PART 13 surface, OpenAPI, rate limits | Not started |
-| 5 | MCP server — 10 tools over the same services | Not started |
-| 6 | Dashboard wiring — replace mock data with the real API | Not started |
-| 7 | Security hardening pass | Not started |
-| 8 | Testing completion | Not started |
-| 9 | Production deploy | **Superseded** — the pipeline does this |
+| 2 | Authentication — Firebase for humans, API keys for agents | **Done** |
+| 3 | Storage core — R2 presigned upload/download, file/folder CRUD | **Done** — round-trip proven |
+| 4 | REST API — files, folders, agents, keys, members, webhooks, activity, billing, search | **Done** except signed links and multipart |
+| 5 | MCP server — 10 tools over the same services | **Done** |
+| 6 | Dashboard wiring — replace mock data with the real API | **Done** — no fixtures remain |
+| 7 | Security hardening pass | **Done** — CORS, audit trail, scope escalation tests |
+| 8 | Testing completion | **370 tests across 25 files** |
+| 9 | Production deploy | **Not started** — prod has never been applied |
 | 10 | Production hardening — observability | Not started |
 
-**The near-term bar is roadmap step 27**: a real file round-tripping through
-`agentdisk-dev-files` via a presigned URL. That needs Phases 1–3. Prod stays
-untouched until then.
+Still open, in dependency order: webhook **delivery** (registration works,
+nothing is sent), the admin panel and the editable plans that depend on it,
+multipart upload, signed permanent links, `openapi.yaml`, and the production
+cutover.
+
+**Roadmap step 27 is met.** A 2 MB file round-tripped through
+`agentdisk-dev-files` via a presigned PUT and GET on 7 September 2026, SHA-256
+identical in and out. See [STATUS.md](STATUS.md) for how everything else was
+verified, and [USER_TESTING_GUIDE.md](USER_TESTING_GUIDE.md) for the walkthrough
+a person can follow.
 
 ### Phase 0 — Foundation (done)
 

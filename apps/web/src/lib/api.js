@@ -106,6 +106,21 @@ export function createApiClient(getToken) {
     revokeKey: (workspaceId, keyId) =>
       request(`/v1/keys/${keyId}`, { method: 'DELETE', workspaceId }),
 
+    listMembers: workspaceId => request('/v1/members', { workspaceId }),
+    inviteMember: (workspaceId, body) =>
+      request('/v1/members', { method: 'POST', body, workspaceId }),
+    updateMemberRole: (workspaceId, membershipId, role) =>
+      request(`/v1/members/${membershipId}`, { method: 'PATCH', body: { role }, workspaceId }),
+    /**
+     * `revokeKeys` is explicit rather than defaulted, matching the API: neither
+     * revoking nor not-revoking is safe to assume on somebody's behalf.
+     */
+    removeMember: (workspaceId, membershipId, revokeKeys) =>
+      request(`/v1/members/${membershipId}${revokeKeys ? '?revokeKeys=true' : ''}`, {
+        method: 'DELETE',
+        workspaceId
+      }),
+
     listFolders: workspaceId => request('/v1/folders', { workspaceId }),
     createFolder: (workspaceId, path) =>
       request('/v1/folders', { method: 'POST', body: { path }, workspaceId }),

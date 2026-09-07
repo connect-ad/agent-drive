@@ -92,6 +92,7 @@ export function createApiClient(getToken) {
       request(`/v1/files/${fileId}`, { method: 'DELETE', workspaceId }),
 
     listAgents: workspaceId => request('/v1/agents', { workspaceId }),
+    getAgent: (workspaceId, agentId) => request(`/v1/agents/${agentId}`, { workspaceId }),
     createAgent: (workspaceId, body) =>
       request('/v1/agents', { method: 'POST', body, workspaceId }),
     updateAgent: (workspaceId, agentId, body) =>

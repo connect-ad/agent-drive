@@ -184,7 +184,11 @@ describe("POST /v1/workspaces - provisioning", () => {
       .bind(ws.org_id)
       .first<any>();
     expect(owner.is_provisional).toBe(1);
-    expect(owner.password_hash).toBe(null);
+    // No Firebase account stands behind this row yet - that is what makes the
+    // workspace claimable. `is_provisional` carries the meaning on its own now
+    // that there is no password column to be null (0005).
+    expect(owner.firebase_uid).toBe(null);
+    expect(owner.session_revoked_after).toBe(0);
     // RFC 2606 reserves .invalid, so the placeholder can never be deliverable.
     expect(owner.email.endsWith("@agentdisk.invalid")).toBe(true);
   });

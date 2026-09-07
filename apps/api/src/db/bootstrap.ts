@@ -71,8 +71,8 @@ export async function provisionSandboxWorkspace(
   await db.batch([
     db
       .prepare(
-        `INSERT INTO users (id, email, password_hash, is_provisional, created_at, updated_at)
-         VALUES (?, ?, NULL, 1, ?, ?)`
+        `INSERT INTO users (id, email, is_provisional, created_at, updated_at)
+         VALUES (?, ?, 1, ?, ?)`
       )
       .bind(userId, placeholderEmail, now, now),
 

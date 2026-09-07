@@ -8,7 +8,7 @@
  * attacker which of their guesses is a real key that merely expired.
  */
 
-import { unauthorized, validationError } from "../lib/errors";
+import { forbidden, unauthorized, validationError } from "../lib/errors";
 import {
   extractBearerToken,
   hasCredentialInQuery,
@@ -18,8 +18,17 @@ import {
   timingSafeEqual,
 } from "../lib/keys";
 import { findApiKeyByHash } from "../db/api-key-lookup";
+import {
+  findMembershipForWorkspace,
+  findUserByFirebaseUid,
+  linkFirebaseUidToEmail,
+  provisionUser,
+  type UserRow,
+} from "../db/user-lookup";
 import { parseScopes, ScopeParseError } from "./scopes";
-import type { ApiKeyIdentity } from "./identity";
+import { verifyFirebaseToken, type JwksCache } from "./firebase";
+import { isMemberRole, scopeForRole } from "./roles";
+import type { ApiKeyIdentity, FirebaseUserIdentity } from "./identity";
 
 /**
  * Reject a credential that arrived in the URL.
@@ -51,7 +60,6 @@ export async function authenticateApiKey(
     throw unauthorized("no bearer token in the Authorization header");
   }
   if (!isApiKeyToken(token)) {
-    // Human session tokens land here once Phase 2's session half exists.
     throw unauthorized("bearer token is not an API key");
   }
 
@@ -133,4 +141,92 @@ export async function assertAgentEnabled(
   if (agent.status !== "active") {
     throw unauthorized(`agent ${identity.agentId} is ${agent.status}`);
   }
+}
+
+/**
+ * The human half of step 1: a Firebase ID token resolved to an AgentDisk user.
+ *
+ * Unlike an API key, this credential carries no workspace - a person belongs to
+ * an organization and may act in any of its workspaces - so the caller names
+ * one and we check membership. That check is what makes step 3 of the chain
+ * safe for humans: `workspaceId` still ends up on the identity, and a handler
+ * still cannot reach past it.
+ */
+export async function authenticateFirebaseUser(
+  token: string,
+  deps: { db: D1Database; cache: JwksCache; projectId: string; now: number },
+  workspaceId: string
+): Promise<FirebaseUserIdentity> {
+  const claims = await verifyFirebaseToken(token, {
+    cache: deps.cache,
+    projectId: deps.projectId,
+    now: deps.now,
+  });
+
+  const user = await resolveUser(deps.db, claims, deps.now);
+
+  // "Log out everywhere" (30.4). Checked here rather than inside the verifier
+  // because it is the one claim check that needs the database, and because a
+  // token can be cryptographically perfect and still be one we refuse.
+  if (claims.issuedAtMs <= user.session_revoked_after) {
+    throw unauthorized(`token predates session_revoked_after for user ${user.id}`);
+  }
+
+  const membership = await findMembershipForWorkspace(deps.db, user.id, workspaceId);
+  if (membership === null) {
+    // Deliberately the same answer whether the workspace does not exist or
+    // exists and belongs to somebody else. Distinguishing them turns this into
+    // a way to enumerate other tenants' workspace IDs.
+    throw forbidden("This workspace is unavailable.");
+  }
+  if (!isMemberRole(membership.role)) {
+    // A role we do not recognise grants nothing, rather than defaulting to the
+    // most permissive one we do recognise.
+    throw unauthorized(`membership carries unknown role ${membership.role}`);
+  }
+
+  return {
+    kind: "firebase_user",
+    userId: user.id,
+    firebaseUid: claims.uid,
+    email: user.email,
+    emailVerified: user.email_verified_at !== null,
+    workspaceId,
+    orgId: membership.org_id,
+    role: membership.role,
+    scope: scopeForRole(membership.role),
+    actorType: "user",
+    actorId: user.id,
+    signInProvider: claims.signInProvider,
+  };
+}
+
+/**
+ * Find the user behind a verified token, or bring them into existence.
+ *
+ * Three cases, in order of how much they are trusted:
+ *   1. We have seen this `firebase_uid` before - the ordinary path.
+ *   2. We have not, but a row exists for this email with no uid attached: an
+ *      invited colleague signing in for the first time. Claim that row so they
+ *      arrive already holding the membership somebody granted them.
+ *   3. Neither - a brand new signup.
+ *
+ * Case 2 only ever matches an *unclaimed* row, and only on an email Firebase
+ * has verified. Matching an unverified email would let anyone who can type a
+ * colleague's address into a signup form inherit that colleague's memberships.
+ */
+async function resolveUser(
+  db: D1Database,
+  claims: Awaited<ReturnType<typeof verifyFirebaseToken>>,
+  now: number
+): Promise<UserRow> {
+  const existing = await findUserByFirebaseUid(db, claims.uid);
+  if (existing !== null) return existing;
+
+  if (claims.email !== null && claims.emailVerified) {
+    const linked = await linkFirebaseUidToEmail(db, claims.email, claims.uid, now);
+    if (linked !== null) return linked;
+  }
+
+  return provisionUser(db, claims, now);
 }

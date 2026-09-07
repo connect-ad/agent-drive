@@ -15,7 +15,7 @@
  * guarantee 16.1 asks for, rather than a rule people have to remember.
  */
 
-import { ApiError, forbidden } from "../lib/errors";
+import { ApiError, forbidden, unauthorized, validationError } from "../lib/errors";
 import { limitsFor, type PlanLimits } from "../lib/plans";
 import { assertWithinQuota, type QuotaDemand } from "../lib/quota";
 import { createWorkspaceContext, type WorkspaceContext } from "../db/workspace-scoped";
@@ -26,8 +26,16 @@ import {
   touchLastUsed,
   type WorkspaceWithPlan,
 } from "../db/api-key-lookup";
-import { authenticateApiKey, assertAgentEnabled } from "../auth/authenticate";
+import {
+  authenticateApiKey,
+  assertAgentEnabled,
+  authenticateFirebaseUser,
+  rejectQueryCredential,
+} from "../auth/authenticate";
 import { assertScope, type KeyScope, type ScopeOp } from "../auth/scopes";
+import { revokeSessionsBefore } from "../db/user-lookup";
+import type { JwksCache } from "../auth/firebase";
+import { extractBearerToken, isApiKeyToken } from "../lib/keys";
 import type { Identity } from "../auth/identity";
 
 export interface AuthContext {
@@ -45,6 +53,19 @@ export interface AuthContext {
    * R2 binding reaches every tenant's bytes, so handlers never see one.
    */
   storage: WorkspaceScopedStorage;
+  /**
+   * The few actions that are about the signed-in person rather than the
+   * workspace. Same discipline as `db` and `storage`: the user ID is bound
+   * here, not passed as an argument, so a handler has no way to name somebody
+   * else's account. Null for an API key - an agent has no "self" to act on.
+   */
+  self: SelfActions | null;
+}
+
+export interface SelfActions {
+  userId: string;
+  /** Invalidate every ID token issued to this user before now (30.4). */
+  revokeSessions(): Promise<void>;
 }
 
 export interface Requirement {
@@ -115,6 +136,44 @@ export interface WithAuthDeps {
   now?: number;
   /** Somewhere to put the last_used_at write so it stays off the response path. */
   waitUntil?: (promise: Promise<unknown>) => void;
+  /**
+   * What the human path needs: somewhere to cache Google's JWKS, and the
+   * Firebase project whose tokens this deployment accepts. Null when
+   * FIREBASE_PROJECT_ID is unset, and then a non-key bearer token is refused
+   * rather than verified against nothing - the same fail-closed shape as a
+   * missing Turnstile secret.
+   */
+  firebase: { cache: JwksCache; projectId: string } | null;
+}
+
+/**
+ * Step 1 + 3 for a human. A person's credential names no workspace - they
+ * belong to an organization and may act in any of its workspaces - so the
+ * caller has to say which, and membership decides whether they may.
+ */
+async function authenticateHuman(
+  token: string,
+  url: URL,
+  deps: WithAuthDeps,
+  now: number
+): Promise<Identity> {
+  if (deps.firebase === null) {
+    throw unauthorized("no FIREBASE_PROJECT_ID configured; user tokens cannot be verified");
+  }
+  const workspaceId = url.searchParams.get("workspaceId");
+  if (workspaceId === null || workspaceId === "") {
+    // A validation error rather than a 401: the credential is fine, the request
+    // is incomplete, and saying so is not an oracle about anyone's data.
+    throw validationError(
+      "workspaceId is required when authenticating as a user. An API key carries " +
+        "its own workspace; a user session does not."
+    );
+  }
+  return authenticateFirebaseUser(
+    token,
+    { db: deps.db, cache: deps.firebase.cache, projectId: deps.firebase.projectId, now },
+    workspaceId
+  );
 }
 
 export async function withAuth(
@@ -126,14 +185,39 @@ export async function withAuth(
   const now = deps.now ?? Date.now();
   const url = new URL(request.url);
 
-  // 1 + 2. Identity and its scope arrive together: an API key's capabilities
-  // are on the key row, so there is no separate scope lookup to get wrong.
-  const identity = await authenticateApiKey(request, deps.db, now);
-  await assertAgentEnabled(deps.db, identity);
-  const scope = identity.scope;
+  // Before anything else, including reading the header. A credential in the URL
+  // is already burned - in Cloudflare's access logs and the caller's shell
+  // history - and only a loud, specific failure gets it rotated. Answering the
+  // generic 401 first would bury that.
+  rejectQueryCredential(url);
 
-  // 3.
-  assertRequestedWorkspaceMatches(url, identity.workspaceId);
+  // 1 + 2. Identity and its scope arrive together, whichever credential it is:
+  // an API key's capabilities are on the key row, a person's follow from their
+  // role. Neither needs a separate scope lookup that could be got wrong.
+  //
+  // The two are told apart by shape, not by which header they arrived in. An
+  // AgentDisk key has a fixed prefix; anything else is offered to the Firebase
+  // verifier, which rejects it unless it is a genuine ID token for this exact
+  // project.
+  const presented = extractBearerToken(request);
+  if (presented === null) {
+    throw unauthorized("no bearer token in the Authorization header");
+  }
+
+  let identity: Identity;
+  if (isApiKeyToken(presented)) {
+    const keyIdentity = await authenticateApiKey(request, deps.db, now);
+    await assertAgentEnabled(deps.db, keyIdentity);
+    // 3. For a key the workspace comes off the key row, full stop.
+    assertRequestedWorkspaceMatches(url, keyIdentity.workspaceId);
+    identity = keyIdentity;
+  } else {
+    // 3 happens inside, because for a person the workspace and the membership
+    // check that authorizes it are one question.
+    identity = await authenticateHuman(presented, url, deps, now);
+  }
+
+  const scope = identity.scope;
   const workspace = await resolveWorkspace(deps.db, identity.workspaceId);
 
   // 4.
@@ -148,7 +232,10 @@ export async function withAuth(
   // Record that the key worked - after authorization, so a rejected request
   // does not update it, and off the response path, because this is a D1 write
   // and the caller has no reason to wait for it.
-  if (shouldTouchLastUsed({ last_used_at: identity.lastUsedAt }, now)) {
+  if (
+    identity.kind === "api_key" &&
+    shouldTouchLastUsed({ last_used_at: identity.lastUsedAt }, now)
+  ) {
     const write = touchLastUsed(deps.db, identity.keyId, now).catch((err: unknown) => {
       console.log(
         JSON.stringify({
@@ -173,6 +260,13 @@ export async function withAuth(
     limits,
     db: createWorkspaceContext(deps.db, identity.workspaceId),
     storage: new WorkspaceScopedStorage(deps.files, deps.signing, identity.workspaceId),
+    self:
+      identity.kind === "firebase_user"
+        ? {
+            userId: identity.userId,
+            revokeSessions: () => revokeSessionsBefore(deps.db, identity.userId, now),
+          }
+        : null,
   };
 
   // 6.

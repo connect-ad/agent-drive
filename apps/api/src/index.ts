@@ -1,5 +1,5 @@
 /**
- * AgentDrive API Worker.
+ * AgentDisk API Worker.
  *
  * Routing is hand-written rather than a framework: the surface is small, every
  * path is one of two shapes, and a router library would be more code than the
@@ -12,6 +12,7 @@ import { toErrorResponse, ApiError } from "./lib/errors";
 import { newId } from "./lib/ids";
 import { withAuth, type Requirement, type Handler } from "./middleware/auth";
 import { whoami } from "./routes/whoami";
+import { logoutAll } from "./routes/logout-all";
 import { createWorkspace } from "./routes/create-workspace";
 import {
   completeFile,
@@ -31,6 +32,7 @@ import {
   moveFile,
 } from "./routes/folders";
 import { readSigningConfig, type R2SigningConfig } from "./storage/presign";
+import { preflightResponse, withCorsHeaders } from "./lib/cors";
 
 export interface Env {
   DB: D1Database;
@@ -59,6 +61,22 @@ export interface Env {
    */
   R2_ACCESS_KEY_ID?: string;
   R2_SECRET_ACCESS_KEY?: string;
+
+  /**
+   * The Firebase project whose ID tokens this deployment accepts (16 PART 30.2).
+   * Public configuration, not a secret - verification uses Google's public
+   * JWKS - but environment-scoped, because dev and prod are two separate
+   * Firebase projects and a token from one must not authenticate against the
+   * other. Absent means user tokens are refused; API keys are unaffected.
+   */
+  FIREBASE_PROJECT_ID?: string;
+
+  /**
+   * Origins allowed to call this API from a browser, comma-separated and
+   * including the scheme. Public configuration, per environment, so the dev API
+   * cannot be driven from the prod dashboard or the other way round.
+   */
+  CORS_ALLOWED_ORIGINS?: string;
 }
 
 export interface HealthReport {
@@ -103,6 +121,17 @@ function signingConfig(env: Env): R2SigningConfig | null {
   }
 }
 
+/**
+ * The Firebase half of the same idea, and simpler because there is only one
+ * value: either this deployment knows which project's tokens it accepts, or it
+ * refuses user tokens outright. There is no half-configured state to detect.
+ */
+function firebaseConfig(env: Env): { cache: KVNamespace; projectId: string } | null {
+  const projectId = env.FIREBASE_PROJECT_ID;
+  if (projectId === undefined || projectId === "") return null;
+  return { cache: env.CACHE, projectId };
+}
+
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -122,7 +151,16 @@ export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const id = requestId();
 
-    try {
+    // Before everything, including authentication. A preflight carries no
+    // Authorization header - the browser has not sent the real request yet - so
+    // any credential check here would reject every cross-origin call there is.
+    if (request.method === "OPTIONS") {
+      return preflightResponse(request, env);
+    }
+
+    // The routing body, lifted so that every exit - a handler's response and
+    // an error envelope alike - leaves through the same CORS wrapper below.
+    const respond = async (): Promise<Response> => {
       const url = new URL(request.url);
       const route = `${request.method} ${url.pathname}`;
 
@@ -140,6 +178,7 @@ export default {
             signing: () => signingConfig(env),
             requestId: id,
             waitUntil: (promise) => ctx.waitUntil(promise),
+            firebase: firebaseConfig(env),
           },
           requirement,
           handler
@@ -154,6 +193,12 @@ export default {
           turnstileSecret: env.TURNSTILE_SECRET_KEY,
           allowedHostnames: env.TURNSTILE_ALLOWED_HOSTNAMES,
         });
+      }
+
+      // 30.4. A user ending their own sessions; refused for an API key, which
+      // must never acquire authority over the person who issued it.
+      if (route === "POST /v1/me/logout-all") {
+        return await authed({ op: null }, logoutAll);
       }
 
       if (route === "GET /v1/whoami") {
@@ -225,8 +270,15 @@ export default {
       }
 
       throw new ApiError("NOT_FOUND", "No such route.");
+    };
+
+    // Errors get the headers too. A 401 the browser refuses to let script read
+    // is indistinguishable from a network failure, and "that credential isn't
+    // valid" is exactly what a developer needs to see in their console.
+    try {
+      return withCorsHeaders(await respond(), request, env);
     } catch (thrown) {
-      return toErrorResponse(thrown, id);
+      return withCorsHeaders(toErrorResponse(thrown, id), request, env);
     }
   },
 

@@ -139,18 +139,30 @@ export default function AgentDetails() {
   const activeKeys = useMemo(() => (keys ?? []).filter(k => k.status === 'active'), [keys]);
 
   /**
+   * Keys the API reports as blocked - intact, but refused because this agent is
+   * disabled. Counted apart from active ones so the tile can say a disabled
+   * agent has no live keys while still accounting for the credentials that come
+   * back the moment it is re-enabled.
+   */
+  const blockedKeys = useMemo(() => (keys ?? []).filter(k => k.status === 'blocked'), [keys]);
+
+  /**
    * What this agent can actually do, read off its live keys rather than stated
    * as a property of the agent - the agent has no permissions of its own, the
    * keys carry them, and two keys may differ.
    */
   const permission = useMemo(() => {
-    if (activeKeys.length === 0) return null;
-    const ops = [...new Set(activeKeys.flatMap(k => k.scopes?.ops ?? []))].sort();
+    // Blocked keys count here but not in the live tally. Disabling an agent
+    // should not blank out what it is permitted to do - that is the thing you
+    // want to read while deciding whether to switch it back on.
+    const carrying = [...activeKeys, ...blockedKeys];
+    if (carrying.length === 0) return null;
+    const ops = [...new Set(carrying.flatMap(k => k.scopes?.ops ?? []))].sort();
     const prefixes = [
-      ...new Set(activeKeys.map(k => (k.scopes?.pathPrefix ? `${k.scopes.pathPrefix}/*` : '/*')))
+      ...new Set(carrying.map(k => (k.scopes?.pathPrefix ? `${k.scopes.pathPrefix}/*` : '/*')))
     ];
     return { ops, prefixes };
-  }, [activeKeys]);
+  }, [activeKeys, blockedKeys]);
 
   const eventRows = useMemo(() => (events ?? []).map(toRow), [events]);
 
@@ -209,7 +221,8 @@ export default function AgentDetails() {
       render: r =>
         r.status === 'revoked' ? <Badge tone="danger" dot>Revoked</Badge>
           : r.status === 'expired' ? <Badge tone="warn" dot>Expired</Badge>
-            : <Badge tone="ok" dot>Active</Badge>
+            : r.status === 'blocked' ? <Badge tone="warn" dot>Blocked</Badge>
+              : <Badge tone="ok" dot>Active</Badge>
     }
   ];
 
@@ -290,7 +303,9 @@ export default function AgentDetails() {
                   sub={
                     keys === null
                       ? 'Key list unavailable'
-                      : `${keys.length} issued in total`
+                      : blockedKeys.length > 0
+                        ? `${blockedKeys.length} blocked while this agent is disabled`
+                        : `${keys.length} issued in total`
                   }
                 />
                 <StatTile

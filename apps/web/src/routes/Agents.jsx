@@ -64,7 +64,14 @@ export default function Agents() {
 
   const rows = (data?.agents ?? [])
     .map(a => {
-      const live = (data?.keys ?? []).filter(k => k.agentId === a.id && k.status === 'active');
+      // `blocked` counts as a credential this agent holds. The API reports it
+      // for a key whose agent is disabled, and excluding it would empty the
+      // Keys column for exactly the agents whose keys you are trying to account
+      // for - the row already says Disabled, so the count should still say how
+      // many come back when it is switched on. Revoked and expired do not.
+      const live = (data?.keys ?? []).filter(
+        k => k.agentId === a.id && (k.status === 'active' || k.status === 'blocked')
+      );
       return {
         ...a,
         keys: live.length,

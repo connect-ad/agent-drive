@@ -145,7 +145,11 @@ export default function ApiKeys() {
       render: r =>
         r.status === 'revoked' ? <Badge tone="danger" dot>Revoked</Badge>
           : r.status === 'expired' ? <Badge tone="warn" dot>Expired</Badge>
-            : <Badge tone="ok" dot>Active</Badge>
+            // Blocked is the agent's doing, not the key's: the row is intact and
+            // re-enabling the agent brings it straight back. Shown as warn
+            // rather than danger so it does not read as revoked, which is final.
+            : r.status === 'blocked' ? <Badge tone="warn" dot>Agent disabled</Badge>
+              : <Badge tone="ok" dot>Active</Badge>
     },
     {
       key: 'act',
@@ -157,7 +161,11 @@ export default function ApiKeys() {
             tone="danger"
             icon={<Icon name="lock" size={14} />}
             label={`Revoke ${r.name}`}
-            disabled={r.status !== 'active' || !canWrite}
+            // A blocked key is still revocable. It reported as "active" before
+            // `blocked` existed, so testing for `active` here would quietly take
+            // away the ability to permanently kill a key whose agent happens to
+            // be off — the moment you most want it gone.
+            disabled={!canWrite || r.status === 'revoked' || r.status === 'expired'}
             onClick={() => { setTarget(r); setDialog('revoke'); }}
           />
         </span>

@@ -57,8 +57,37 @@ function json(body: unknown, status = 200): Response {
  * by, which is the whole reason 15.3 stores them separately — enough to tell
  * two keys apart in a list, not enough to reconstruct either.
  */
-function toResource(row: ApiKeyRow, now: number) {
-  const expired = row.expires_at !== null && row.expires_at <= now;
+/**
+ * Whether this key will authenticate, not merely whether its own row is intact.
+ *
+ * `blocked` exists because the two questions came apart. A key whose agent is
+ * disabled has `revoked_at` NULL and no expiry, so on the row alone it looks
+ * perfectly alive — while `assertAgentEnabled` refuses it on every request. The
+ * dashboard showed such a key as Active, which is the worst possible answer:
+ * somebody disables an agent to stop it, sees its credentials still listed as
+ * live, and cannot tell whether the disable worked.
+ *
+ * Order matters. Revoked and expired are permanent and belong to the key
+ * itself, so they outrank a `blocked` that lifts the moment the agent is
+ * re-enabled — a revoked key must never soften to "blocked" and read as
+ * recoverable.
+ *
+ * `agentStatus` is undefined when the workspace's agent list did not contain
+ * this key's agent. That is treated as blocked rather than active, matching
+ * authentication, which rejects a key referencing an agent it cannot find.
+ */
+function keyStatus(
+  row: ApiKeyRow,
+  now: number,
+  agentStatus: string | undefined
+): "revoked" | "expired" | "blocked" | "active" {
+  if (row.revoked_at !== null) return "revoked";
+  if (row.expires_at !== null && row.expires_at <= now) return "expired";
+  if (row.agent_id !== null && agentStatus !== "active") return "blocked";
+  return "active";
+}
+
+function toResource(row: ApiKeyRow, now: number, agentStatus?: string) {
   let scope: KeyScope | null = null;
   try {
     scope = JSON.parse(row.scopes) as KeyScope;
@@ -72,7 +101,7 @@ function toResource(row: ApiKeyRow, now: number) {
     prefix: row.key_prefix,
     lastFour: row.key_last_four,
     scopes: scope,
-    status: row.revoked_at !== null ? "revoked" : expired ? "expired" : "active",
+    status: keyStatus(row, now, agentStatus),
     createdBy: row.created_by_user_id,
     lastUsedAt: row.last_used_at === null ? null : new Date(row.last_used_at).toISOString(),
     expiresAt: row.expires_at === null ? null : new Date(row.expires_at).toISOString(),
@@ -82,8 +111,18 @@ function toResource(row: ApiKeyRow, now: number) {
 }
 
 export async function listKeys(ctx: AuthContext): Promise<Response> {
-  const keys = await ctx.db.apiKeys.list();
-  return json({ keys: keys.map(row => toResource(row, ctx.now)) });
+  const [keys, agents] = await Promise.all([ctx.db.apiKeys.list(), ctx.db.agents.list()]);
+
+  // One extra workspace-scoped read rather than a join, because `status` is the
+  // only column wanted and the agent count per workspace is small. Building the
+  // map once keeps this O(keys + agents) instead of a lookup per key.
+  const agentStatus = new Map(agents.map(a => [a.id, a.status]));
+
+  return json({
+    keys: keys.map(row =>
+      toResource(row, ctx.now, row.agent_id === null ? undefined : agentStatus.get(row.agent_id))
+    ),
+  });
 }
 
 export async function createKey(ctx: AuthContext, request: Request): Promise<Response> {
@@ -169,7 +208,11 @@ export async function createKey(ctx: AuthContext, request: Request): Promise<Res
 
   return json(
     {
-      key: toResource(row, ctx.now),
+      // "active" rather than a lookup: minting against a disabled agent was
+      // refused above, so by here the agent is known to be active. Omitting it
+      // would make every agent-bound key report `blocked` in the one response
+      // that also carries its secret.
+      key: toResource(row, ctx.now, row.agent_id === null ? undefined : "active"),
       // The one and only time this value exists in a response. Said out loud in
       // the payload so a client that stores the object wholesale still has a
       // chance of noticing what it just wrote to disk.

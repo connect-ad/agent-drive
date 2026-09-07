@@ -182,6 +182,73 @@ describe("minting keys", () => {
     ).toBe(400);
   });
 
+  /**
+   * The listing and the authenticator have to agree about the same key.
+   *
+   * They did not. `status` was computed from `revoked_at` and `expires_at`
+   * alone, so a key whose agent had been disabled listed as "active" while
+   * every request it made was refused — somebody disables an agent to stop it,
+   * sees its credentials still shown as live, and cannot tell whether the
+   * disable took effect. Both halves are asserted here together, in one test,
+   * so that fixing the display without the enforcement (or the reverse) fails.
+   */
+  it("reports a disabled agent's key as blocked, and refuses it", async () => {
+    const agentId = await seedAgent({ id: "agt_TOGGLE", workspaceId: WORKSPACE_A });
+    const agentKey = await seedApiKey({ workspaceId: WORKSPACE_A, agentId, ops: ["list", "read"] });
+    const lister = await seedApiKey({ workspaceId: WORKSPACE_A, ops: ["list"] });
+
+    const statusOf = async (): Promise<string | undefined> => {
+      const body = (await (
+        await SELF.fetch(`${URL_BASE}/v1/keys`, { headers: bearer(lister.token) })
+      ).json()) as { keys: { id: string; status: string }[] };
+      return body.keys.find(k => k.id === agentKey.keyId)?.status;
+    };
+
+    expect(await statusOf()).toBe("active");
+    expect((await SELF.fetch(`${URL_BASE}/v1/agents`, { headers: bearer(agentKey.token) })).status).toBe(200);
+
+    await env.DB.prepare(`UPDATE agents SET status = 'disabled' WHERE id = ?`).bind(agentId).run();
+
+    expect(await statusOf()).toBe("blocked");
+    expect((await SELF.fetch(`${URL_BASE}/v1/agents`, { headers: bearer(agentKey.token) })).status).toBe(401);
+
+    // Reversible, and the listing has to say so: re-enabling restores the key
+    // rather than requiring a new one to be minted.
+    await env.DB.prepare(`UPDATE agents SET status = 'active' WHERE id = ?`).bind(agentId).run();
+    expect(await statusOf()).toBe("active");
+  });
+
+  it("keeps revoked ahead of blocked, so a dead key never reads as recoverable", async () => {
+    const agentId = await seedAgent({ id: "agt_GONE", workspaceId: WORKSPACE_A });
+    const revoked = await seedApiKey({
+      workspaceId: WORKSPACE_A,
+      agentId,
+      ops: ["read"],
+      revokedAt: NOW - 1000,
+    });
+    const lister = await seedApiKey({ workspaceId: WORKSPACE_A, ops: ["list"] });
+    await env.DB.prepare(`UPDATE agents SET status = 'disabled' WHERE id = ?`).bind(agentId).run();
+
+    const body = (await (
+      await SELF.fetch(`${URL_BASE}/v1/keys`, { headers: bearer(lister.token) })
+    ).json()) as { keys: { id: string; status: string }[] };
+
+    // Blocked lifts when the agent comes back; revoked never does.
+    expect(body.keys.find(k => k.id === revoked.keyId)?.status).toBe("revoked");
+  });
+
+  it("leaves a workspace-level key active — it has no agent to be blocked by", async () => {
+    await seedAgent({ id: "agt_IRRELEVANT", workspaceId: WORKSPACE_A, status: "disabled" });
+    const plain = await seedApiKey({ workspaceId: WORKSPACE_A, ops: ["read"] });
+    const lister = await seedApiKey({ workspaceId: WORKSPACE_A, ops: ["list"] });
+
+    const body = (await (
+      await SELF.fetch(`${URL_BASE}/v1/keys`, { headers: bearer(lister.token) })
+    ).json()) as { keys: { id: string; status: string }[] };
+
+    expect(body.keys.find(k => k.id === plain.keyId)?.status).toBe("active");
+  });
+
   it("refuses an expiry already in the past", async () => {
     const { token } = await seedApiKey({ workspaceId: WORKSPACE_A, ops: ["keys:create", "read"] });
     const res = await post("/v1/keys", token, { name: "stale", ops: ["read"], expiresAt: NOW - 1000 });

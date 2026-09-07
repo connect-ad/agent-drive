@@ -13,6 +13,7 @@
 
 import { describe, expect, it } from "vitest";
 import {
+  currentTotp,
   decryptSecret,
   encryptSecret,
   generateTotpSecret,
@@ -162,5 +163,52 @@ describe("constant-time compare", () => {
     expect(timingSafeEqualHex("abc123", "abc124")).toBe(false);
     expect(timingSafeEqualHex("abc", "abcd")).toBe(false);
     expect(timingSafeEqualHex("", "")).toBe(true);
+  });
+});
+
+/**
+ * Cross-runtime pinning for scripts/provision-staff.mjs.
+ *
+ * The provisioning script runs under Node and computes a password hash and an
+ * encrypted TOTP secret that the Worker must later accept. Nothing at build
+ * time connects the two — they are separate implementations of the same
+ * formats — so a change to the parameters in src/staff/crypto.ts would leave
+ * the script silently producing values that no longer verify. The symptom would
+ * be a staff account that cannot log in and, because POST /v1/staff/users is
+ * 501, cannot be repaired through the API either.
+ *
+ * These literals are the real output of one run of that script. They are not
+ * regenerated here: computing them with the same code they are meant to check
+ * would assert nothing.
+ */
+describe("provision-staff.mjs output", () => {
+  const PASSWORD = "Z-PafuvrLhtLGTxxpXuLmC7S-_rYKjrT";
+  const HASH =
+    "pbkdf2$210000$74b355bf562b5e4089cd558f9dcfd952$" +
+    "596357ef188649ba67fd6946650c7ad252771ab41c8066fce0b48ce62d87a49f";
+  const SCRIPT_KEY = "test-key-for-roundtrip-only";
+  const ENCRYPTED_TOTP =
+    "4594143e4bb7bb31a1841753:" +
+    "7399bbe151265dd7c4392688c6d39a3c497a61911ede9a1117b7c8c7cd9f1122c59fa91e123b8f5cc4dddcfa3fc8e90f";
+  const TOTP_SECRET = "6HLJXZL72O32GLSJ3457CMTBKDGJH6FM";
+
+  it("produces a password hash the Worker verifies", async () => {
+    expect(await verifyPassword(PASSWORD, HASH)).toBe(true);
+    expect(await verifyPassword(`${PASSWORD}x`, HASH)).toBe(false);
+  });
+
+  it("produces a TOTP secret the Worker can decrypt", async () => {
+    expect(await decryptSecret(ENCRYPTED_TOTP, SCRIPT_KEY)).toBe(TOTP_SECRET);
+  });
+
+  it("produces a TOTP secret that yields codes the Worker accepts", async () => {
+    // The enrolment step tells the operator to confirm a code before applying
+    // the SQL. This asserts that check is meaningful: a code derived from the
+    // decrypted secret verifies against the same secret.
+    const decrypted = await decryptSecret(ENCRYPTED_TOTP, SCRIPT_KEY);
+    expect(decrypted).not.toBeNull();
+    const now = 1_788_777_044_851;
+    const code = await currentTotp(decrypted as string, now);
+    expect(await verifyTotp(decrypted as string, code, now)).toBe(true);
   });
 });

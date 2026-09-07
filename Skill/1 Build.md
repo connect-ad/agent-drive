@@ -231,18 +231,49 @@ pushes secrets, runs D1 migrations, deploys, and smoke-tests. The
 of that — a hand deploy ships a `wrangler.toml` still full of `TF_OUTPUT_*`
 placeholders.
 
-Three workflows, and they are separate on purpose:
+Four workflows, and they are separate on purpose:
 
 | Workflow | Trigger | Does |
 |---|---|---|
 | `ci.yml` | PRs, pushes, dispatch | Verify + `terraform plan` for **both** workspaces |
 | `deploy-dev.yml` -> `deploy.yml` | push to `dev` | The API pipeline |
 | `deploy-web-dev.yml` | push touching `apps/web` or `infra/terraform` | The dashboard, which is assets-only and shares none of the API's migration or secret steps |
+| `deploy-admin-dev.yml` | push touching `apps/admin` or `infra/terraform` | The staff console. Same shape as the dashboard's, minus the Turnstile and Firebase build variables the console has no use for |
 
 Live dev hostnames: `api-dev.agentdisk.io`, `mcp-dev.agentdisk.io`,
-`app-dev.agentdisk.io`. **Prod has never been applied** — its workspace plans
+`app-dev.agentdisk.io`, `admin-dev.agentdisk.io`. **Prod has never been applied** — its workspace plans
 `12 to add`, and it is gated behind a PR into `main` plus required-reviewer
 approval.
+
+### Provision a staff account
+
+The staff console has no self-service path in or out: `POST /v1/staff/users`
+returns 501 by design, so the first account — and every account — is created
+from a machine, not from the product.
+
+```bash
+cd apps/api
+export DATABASE_ENCRYPTION_KEY='...'   # the dev/prod environment secret, same
+                                       # value the Worker runs with
+node scripts/provision-staff.mjs --email you@example.com --role super_admin --env dev
+```
+
+Never pass the key as an argument: arguments are visible in shell history and in
+the process list.
+
+The script writes a `.sql` file holding only a password hash and an *encrypted*
+TOTP secret, and prints the password, the `otpauth://` URI and the code the
+authenticator should be showing right now. **Confirm that code before applying
+the SQL.** Enrolling wrong produces an account that cannot log in and cannot be
+deleted through the API — there is no repair path short of another direct D1
+write. Apply with the `wrangler d1 execute --remote --file` command it prints,
+then delete the file.
+
+The one calibration worth knowing: the script re-implements PBKDF2, AES-GCM and
+base32 TOTP because it runs under Node rather than Workers. Nothing at build time
+ties it to `src/staff/crypto.ts`, so `test/staff-crypto.test.ts` pins its literal
+output against the Worker's verifiers. If you change either side's parameters,
+that test is what tells you.
 
 ### Firebase auth config
 

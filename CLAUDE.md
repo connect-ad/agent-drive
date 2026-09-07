@@ -111,6 +111,16 @@ were not touched. See [002](backlog/002-reconcile-brand-drift.md).
   destination, or a scoped key can write anywhere by moving a file it controls;
   copy needs read on the source, or it becomes a way to pull any file into your
   own scope and read it there.
+- **The first staff account cannot come from the API, and that is the design.**
+  `POST /v1/staff/users` returns 501 on purpose: an endpoint that mints a working
+  staff credential is an endpoint that can be tricked into minting one. Accounts
+  come from `apps/api/scripts/provision-staff.mjs`, which runs under Node and
+  therefore re-implements PBKDF2, AES-GCM and base32 TOTP against the same
+  formats as `src/staff/crypto.ts`. **Nothing at build time connects the two.**
+  A parameter change on either side would silently produce a staff account that
+  cannot log in and — because the endpoint is 501 — cannot be repaired through
+  the API either. `test/staff-crypto.test.ts` pins the script's literal output
+  against the Worker's verifiers so that divergence fails a build instead.
 - **Clear inbound foreign keys before deleting a subtree.** Within one statement
   SQLite deletes rows in arbitrary order and checks foreign keys immediately, so
   a self-referencing tree (`folders.parent_folder_id`) or one referenced from
@@ -230,10 +240,8 @@ reconciles the usage counters against the rows.
 
 ### What is not built
 
-- **Webhook delivery.** Endpoints register and store; nothing is sent to them.
-  The screen says so rather than leaving an integration waiting.
-- **The admin panel** (`apps/admin`, doc 14 PART 27/28), and the editable plans
-  that depend on it.
+- **Editable plans and pricing** (doc 14 PART 29.6). The staff console lists
+  plans; it cannot change one or push a price to Stripe.
 - **Multipart upload** and **signed permanent links**.
 - **Full-text search inside files.** Search covers names, paths, captions and
   tags, and the response names the fields it looked at.

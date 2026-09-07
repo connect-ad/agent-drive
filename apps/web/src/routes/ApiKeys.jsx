@@ -234,7 +234,7 @@ export default function ApiKeys() {
           optional
           value={agentId}
           onChange={e => setAgentId(e.target.value)}
-          hint={agents.length === 0 ? 'No agents yet — this will be a workspace-level key.' : 'Leave empty for a workspace-level key.'}
+          hint="Optional. A workspace-level key works on its own — choose an agent only to attribute its activity and revoke its keys as a group."
           options={[
             { value: '', label: 'No agent (workspace-level)' },
             ...agents.filter(a => a.status === 'active').map(a => ({ value: a.id, label: a.name }))

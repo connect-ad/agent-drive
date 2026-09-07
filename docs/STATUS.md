@@ -79,9 +79,8 @@ Named plainly rather than left to be discovered.
 
 | Missing | Consequence |
 |---|---|
-| Webhook **delivery** | Endpoints register and store; nothing is sent. The screen says so |
-| Admin panel (`apps/admin`) | No staff tooling. Doc 14 PART 27/28 unbuilt |
-| Editable plans and pricing | Needs the admin panel to be worth anything (14 PART 29.6) |
+| Editable plans and pricing | The console lists plans; it cannot change one or push a price to Stripe (14 PART 29.6) |
+| Staff account provisioning in-product | `POST /v1/staff/users` is 501 by design; accounts come from `apps/api/scripts/provision-staff.mjs` |
 | Multipart upload | Files above ~5 GB cannot be uploaded in one part |
 | Signed permanent links | `POST /v1/files/:id/sign` needs a `signed_links` table |
 | Full-text search inside files | Needs an index. The API names the fields it did search |
@@ -148,7 +147,6 @@ not provide.
 1. **Walk through [USER_TESTING_GUIDE.md](USER_TESTING_GUIDE.md) in a browser.**
    Every step needing a mouse is unverified — I cannot click an OAuth consent
    screen or drag a file onto a page.
-2. **Webhook delivery**, so registered endpoints stop being a promise.
-3. **The admin panel**, and with it editable plans.
-4. **Production cutover** — a second Firebase project, live Stripe keys, and the
+2. **Editable plans**, and pushing a price to Stripe from the console.
+3. **Production cutover** — a second Firebase project, live Stripe keys, and the
    required-reviewer gate.

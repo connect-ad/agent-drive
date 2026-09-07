@@ -67,7 +67,7 @@ export async function createStaffSession(
       `INSERT INTO staff_sessions (id, staff_user_id, token_hash, expires_at, revoked_at, created_at)
        VALUES (?, ?, ?, ?, NULL, ?)`
     )
-    .bind(newId("request", now).replace("req_", "ssn_"), staffUserId, await hashToken(token), expiresAt, now)
+    .bind(newId("staffSession", now), staffUserId, await hashToken(token), expiresAt, now)
     .run();
 
   return { token, expiresAt };

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import {
-  PageHead, Panel, DataTable, Button, IconButton, Icon, Input, Select, Badge,
+  PageHead, Panel, DataTable, Button, Icon, Input, Select, Badge,
   Checkbox, Modal, ConfirmModal, EmptyState, ApiKeyDisplay, Alert, Toast
 } from '../components/index.js';
 import { useResource } from '../lib/useResource.js';
@@ -153,21 +153,25 @@ export default function ApiKeys() {
     },
     {
       key: 'act',
-      header: '',
-      width: 44,
+      header: 'Actions',
+      width: 110,
+      // Revoking is irreversible and there is no un-revoke, so the control that
+      // does it must not be discoverable only by hovering an unlabelled icon.
+      // It was one; the word is the whole point.
       render: r => (
         <span onClick={e => e.stopPropagation()}>
-          <IconButton
-            tone="danger"
-            icon={<Icon name="lock" size={14} />}
-            label={`Revoke ${r.name}`}
+          <Button
+            size="sm"
+            variant="danger-outline"
             // A blocked key is still revocable. It reported as "active" before
             // `blocked` existed, so testing for `active` here would quietly take
             // away the ability to permanently kill a key whose agent happens to
             // be off — the moment you most want it gone.
             disabled={!canWrite || r.status === 'revoked' || r.status === 'expired'}
             onClick={() => { setTarget(r); setDialog('revoke'); }}
-          />
+          >
+            Revoke
+          </Button>
         </span>
       )
     }

@@ -170,6 +170,12 @@ export default function App() {
       <Route path="/privacy" element={<Privacy />} />
       <Route element={<RequireAuth />}>
         <Route path="/app" element={<CurrentWorkspaceRedirect />} />
+        {/* `/dashboard` is the shareable spelling of the same idea: a bookmark,
+            a support article or a link to a colleague cannot name a workspace,
+            because `/w/{id}` is an address that belongs to one reader. Both
+            paths resolve through the same component so neither can drift into
+            being the unprotected one. */}
+        <Route path="/dashboard" element={<CurrentWorkspaceRedirect />} />
       </Route>
       <Route element={<RequireAuth />}>
       <Route element={<RequireWorkspace />}>

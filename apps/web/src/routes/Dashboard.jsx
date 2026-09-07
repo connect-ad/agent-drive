@@ -6,6 +6,7 @@ import {
 } from '../components/index.js';
 import { useResource } from '../lib/useResource.js';
 import { useWorkspace } from '../lib/workspace.jsx';
+import WorkspaceIdChip from '../components-local/WorkspaceIdChip.jsx';
 
 /**
  * 8.8 Dashboard / Overview — MVP-0
@@ -110,7 +111,16 @@ export default function Dashboard() {
       <PageHead
         title="Dashboard"
         subtitle="Storage, agents and everything they did to your files."
-        meta={status === 'loaded' ? <Badge tone="accent">{plan}</Badge> : null}
+        meta={
+          <>
+            {/* The ID comes from the URL, so it is on screen immediately. The
+                plan waits on `whoami` and is absent until then — showing a
+                placeholder plan would be a decorative number, which is the one
+                thing this dashboard refuses to do. */}
+            <WorkspaceIdChip workspaceId={ws} />
+            {status === 'loaded' ? <Badge tone="accent">{plan}</Badge> : null}
+          </>
+        }
         actions={
           canWrite ? (
             <Button variant="secondary" as={Link} to={`${root}/files`} icon={<Icon name="upload" size={14} />}>

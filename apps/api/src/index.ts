@@ -17,6 +17,12 @@ import { createWorkspace } from "./routes/create-workspace";
 import { createWorkspaceForUser, listWorkspaces } from "./routes/workspaces";
 import { createAgent, deleteAgent, getAgent, listAgents, patchAgent } from "./routes/agents";
 import { createKey, listKeys, revokeKey } from "./routes/keys";
+import {
+  changeMemberRole,
+  inviteMember,
+  listWorkspaceMembers,
+  removeWorkspaceMember,
+} from "./routes/members";
 import { resolveVerifiedUser } from "./auth/authenticate";
 import { extractBearerToken, isApiKeyToken } from "./lib/keys";
 import { unauthorized } from "./lib/errors";
@@ -247,6 +253,32 @@ export default {
       }
 
       const segments = url.pathname.split("/").filter((segment) => segment !== "");
+
+      // Members. Every one of these is owner-only, enforced inside the handlers
+      // rather than by a scope op: an agent key holds no role at all, so there
+      // is nothing for a scope to express. The chain still runs in full - a
+      // member of another workspace cannot reach this one's roster.
+      if (segments[0] === "v1" && segments[1] === "members") {
+        const membershipId = segments[2];
+        if (membershipId === undefined) {
+          if (request.method === "GET") return await authed({ op: null }, listWorkspaceMembers);
+          if (request.method === "POST") return await authed({ op: null }, inviteMember);
+          throw new ApiError("NOT_FOUND", "No such route.");
+        }
+        if (segments[3] !== undefined) throw new ApiError("NOT_FOUND", "No such route.");
+
+        if (request.method === "PATCH") {
+          return await authed({ op: null }, (authCtx, req) =>
+            changeMemberRole(authCtx, req, membershipId)
+          );
+        }
+        if (request.method === "DELETE") {
+          return await authed({ op: null }, (authCtx, req) =>
+            removeWorkspaceMember(authCtx, req, membershipId)
+          );
+        }
+        throw new ApiError("NOT_FOUND", "No such route.");
+      }
 
       // Agents. Listing and reading need `read`; anything that changes one
       // needs `write`, because an agent is the thing a credential acts as and

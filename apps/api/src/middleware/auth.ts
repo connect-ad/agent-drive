@@ -34,6 +34,7 @@ import {
 } from "../auth/authenticate";
 import { assertScope, type KeyScope, type ScopeOp } from "../auth/scopes";
 import { revokeSessionsBefore } from "../db/user-lookup";
+import { WorkspaceMembers } from "../db/members";
 import type { JwksCache } from "../auth/firebase";
 import { extractBearerToken, isApiKeyToken } from "../lib/keys";
 import type { Identity } from "../auth/identity";
@@ -53,6 +54,12 @@ export interface AuthContext {
    * R2 binding reaches every tenant's bytes, so handlers never see one.
    */
   storage: WorkspaceScopedStorage;
+  /**
+   * Who may act in this workspace. Bound the same way as `db` and `storage`,
+   * because membership spans the workspace and the billing account above it and
+   * so cannot come from the workspace-scoped repositories.
+   */
+  members: WorkspaceMembers;
   /**
    * The few actions that are about the signed-in person rather than the
    * workspace. Same discipline as `db` and `storage`: the user ID is bound
@@ -260,6 +267,7 @@ export async function withAuth(
     limits,
     db: createWorkspaceContext(deps.db, identity.workspaceId),
     storage: new WorkspaceScopedStorage(deps.files, deps.signing, identity.workspaceId),
+    members: new WorkspaceMembers(deps.db, identity.workspaceId),
     self:
       identity.kind === "firebase_user"
         ? {

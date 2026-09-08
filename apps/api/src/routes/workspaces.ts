@@ -26,11 +26,24 @@
 import { z } from "zod";
 import { ApiError, forbidden, validationError } from "../lib/errors";
 import { newId } from "../lib/ids";
+import { isSlugConflict, uniqueWorkspaceSlug } from "../lib/slug";
 import { listWorkspacesForUser } from "../db/user-lookup";
 import type { UserRow } from "../db/user-lookup";
 
 /** 30 days, matching the reset the sandbox bootstrap uses. */
 const PERIOD_MS = 30 * 24 * 60 * 60 * 1000;
+
+/**
+ * How many times to re-pick a slug when the unique index rejects one.
+ *
+ * `uniqueWorkspaceSlug` reads the taken slugs and then writes, so two creates
+ * in the same instant can choose the same free name. Only the database can
+ * settle that, and it does - the loser sees a UNIQUE violation and simply asks
+ * again, by which time the winner's slug is visible to the read. Three attempts
+ * is far past the point of plausibility for a single account creating
+ * identically-named workspaces simultaneously.
+ */
+const SLUG_ATTEMPTS = 3;
 
 const createSchema = z.object({
   // Trimmed before the length check by zod's own ordering, so "  A  " is a
@@ -51,6 +64,10 @@ export async function listWorkspaces(db: D1Database, user: UserRow): Promise<Res
     workspaces: workspaces.map(workspace => ({
       id: workspace.id,
       name: workspace.name,
+      // The dashboard's URL segment. `id` is still here and still the thing
+      // every API call takes - the slug is a nicer spelling of the address,
+      // not a replacement for the identifier.
+      slug: workspace.slug,
       role: workspace.role,
     })),
   });
@@ -85,20 +102,35 @@ export async function createWorkspaceForUser(
   }
 
   const workspaceId = newId("workspace", now);
-  await db
-    .prepare(
-      `INSERT INTO workspaces
-         (id, org_id, name, status, period_reset_at, claimed_at, created_at, updated_at)
-       VALUES (?, ?, ?, 'active', ?, ?, ?, ?)`
-    )
-    .bind(workspaceId, org.id, parsed.name, now + PERIOD_MS, now, now, now)
-    .run();
+
+  // This is the only creation path that adds a workspace to an organization
+  // that already has some, so it is the only one that has to ask what is taken.
+  let slug = "";
+  for (let attempt = 1; ; attempt++) {
+    slug = await uniqueWorkspaceSlug(db, org.id, parsed.name);
+    try {
+      await db
+        .prepare(
+          `INSERT INTO workspaces
+             (id, org_id, name, slug, status, period_reset_at, claimed_at, created_at, updated_at)
+           VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?)`
+        )
+        .bind(workspaceId, org.id, parsed.name, slug, now + PERIOD_MS, now, now, now)
+        .run();
+      break;
+    } catch (err) {
+      if (attempt >= SLUG_ATTEMPTS || !isSlugConflict(err)) throw err;
+    }
+  }
 
   // No membership row is written. The owner already holds an org-wide one, and
   // adding a per-workspace row beside it would be a second source of truth for
   // the same fact - one that a later "remove from workspace" could delete while
   // leaving them still the owner.
-  return json({ workspace: { id: workspaceId, name: parsed.name, role: "owner" } }, 201);
+  return json(
+    { workspace: { id: workspaceId, name: parsed.name, slug, role: "owner" } },
+    201
+  );
 }
 
 /**

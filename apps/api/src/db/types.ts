@@ -77,6 +77,11 @@ export interface WorkspaceRow {
   id: string;
   org_id: string;
   name: string;
+  /**
+   * The dashboard URL segment. Nullable only because the column was added to
+   * an existing table; every row has one and every insert writes one.
+   */
+  slug: string | null;
   status: "active" | "suspended" | "deleted";
   plan_override: string | null;
   storage_bytes_used: number;

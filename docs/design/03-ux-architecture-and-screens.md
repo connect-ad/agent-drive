@@ -62,7 +62,7 @@ Top-level sidebar nav (persists across all authenticated screens), scoped to the
 ─────────────────────
   Overview
   Files
-  Agents
+  Agent identities
   API Keys
   MCP
   Webhooks           (MVP-1)
@@ -77,6 +77,8 @@ Top-level sidebar nav (persists across all authenticated screens), scoped to the
 ─────────────────────
   Docs ↗ (external)
 ```
+
+**URL scheme.** Every screen header below writes its URL as `/w/{workspaceId}/…`; the dashboard actually addresses a workspace by a **readable slug** derived from its name (`/w/my-workspace/files`), with the raw `ws_…` ID still resolving and redirecting to the slug so older links keep working. The ID is unchanged everywhere it is genuinely needed — API calls, MCP config snippets, the Dashboard ID chip and Settings → Workspace ID — because the slug is an address, not an identifier. `CLAUDE.md` carries the invariants that make the two impossible to confuse.
 
 **MVP-0 nav** hides Webhooks, Activity, Members, and Billing (features not yet built) — the sidebar renders conditionally on feature flags per plan/build stage, not as dead links. "Docs" links to the public docs site in a new tab. A single account-level menu (avatar, top-right) holds Profile, "Create workspace," and Log out.
 
@@ -284,7 +286,7 @@ WCAG 2.1 AA target: 4.5:1 text contrast minimum (verified for both color modes a
 
 ### 8.15 Agent Details — MVP-0
 **URL:** `/w/{workspaceId}/agents/{agentId}`
-**Layout:** Header (name, status toggle, edit/delete) → tabs: Overview (recent activity summary, keys list inline) · Keys (full list + create) · Activity (MVP-1, filtered audit log for this agent).
+**Layout:** Header (name, status toggle) → tabs: Overview (recent activity summary, keys list inline, **Danger zone**) · Keys (full list + create) · Activity (MVP-1, filtered audit log for this agent). Delete is a Danger-zone panel at the foot of Overview rather than a header control, matching Settings → General — a destructive action people meet on two screens should not be two different interactions.
 **Components:** Tabs, Table (keys), Toggle (active/disabled), Badge.
 **Interactions:** Disabling an agent immediately invalidates all its keys (with a confirm modal stating this explicitly) rather than leaving them silently non-functional.
 **States:** As 8.13 plus a disabled-agent banner ("This agent is disabled. Its API keys will not authenticate.").
@@ -292,6 +294,7 @@ WCAG 2.1 AA target: 4.5:1 text contrast minimum (verified for both color modes a
 **Accessibility:** Tabs are a proper ARIA tablist with `aria-selected`.
 **Exact copy:**
 - Disable confirm: "Disable **{agentName}**? All of its API keys will stop working immediately." / buttons: "Cancel" / "Disable agent"
+- Delete confirm (type-to-confirm on the agent's exact name): "This will permanently delete **{agentName}** and revoke its {n} live keys. Revoked keys cannot be reactivated." The count is *live* keys only — active plus blocked-while-the-agent-is-disabled — because naming an already-revoked or expired credential in a warning is noise dressed as a warning. `DELETE /v1/agents/:id` cascades the revocation itself and returns `keysRevoked`; the confirmation on the agents list reports **that** number rather than the dialog's estimate, so a key minted between opening the dialog and confirming is accounted for.
 
 ### 8.16 API Keys (workspace-level list) — MVP-0
 **URL:** `/w/{workspaceId}/keys`

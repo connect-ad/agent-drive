@@ -41,7 +41,12 @@ export const NAV = [
   {
     label: 'Agent access',
     items: [
-      { id: 'agents', label: 'Agents', icon: 'agent', path: '/agents' },
+      // "Agent identities", not "Agents", because the section header above it
+      // already says AGENT ACCESS and "Agents" beside "API keys" reads as a
+      // list of running things rather than the identities keys are minted
+      // against. The label is the only thing that changes: the `/agents` path,
+      // the `agt_` prefix and the section header are all untouched.
+      { id: 'agents', label: 'Agent identities', icon: 'agent', path: '/agents' },
       { id: 'keys', label: 'API keys', icon: 'key', path: '/keys' },
       { id: 'mcp', label: 'MCP connection', icon: 'terminal', path: '/mcp' },
       { id: 'webhooks', label: 'Webhooks', icon: 'link', path: '/webhooks' }
@@ -64,9 +69,9 @@ export const NAV = [
  * somewhere real instead of a hardcoded slug that belongs to nobody.
  */
 function CurrentWorkspaceRedirect() {
-  const { workspaceId, loading } = useWorkspace();
+  const { workspaceId, workspaceSlug, loading } = useWorkspace();
   if (loading) return null;
-  return workspaceId ? <Navigate to={`/w/${workspaceId}`} replace /> : <Navigate to="/login" replace />;
+  return workspaceId ? <Navigate to={`/w/${workspaceSlug}`} replace /> : <Navigate to="/login" replace />;
 }
 
 /** Which nav id is active for the current pathname. */
@@ -84,9 +89,9 @@ function activeId(pathname, wsRoot) {
 function WorkspaceLayout() {
   const navigate = useNavigate();
   const { ws } = useParams();
-  const { pathname } = useLocation();
+  const { pathname, search, hash } = useLocation();
   const { user, signOut } = useAuth();
-  const { workspaces, workspaceId, select, create } = useWorkspace();
+  const { workspaces, workspaceId, select, create, resolveWorkspace } = useWorkspace();
 
   const handleSignOut = async () => {
     await signOut();
@@ -96,15 +101,39 @@ function WorkspaceLayout() {
   const active = activeId(pathname, wsRoot);
   const current = NAV.flatMap(g => g.items).find(it => it.id === active);
 
+  // Either spelling of the address resolves to the same workspace: the slug the
+  // dashboard links to now, or the raw ws_... ID every link made before it did.
+  const open = resolveWorkspace(ws);
+
   // The URL is the source of truth for which workspace is open, so a shared
   // link opens the workspace it names rather than whichever one this browser
   // last had selected.
   React.useEffect(() => {
-    if (ws && ws !== workspaceId && workspaces.some(w => w.id === ws)) select(ws);
-  }, [ws, workspaceId, workspaces, select]);
+    if (open && open.id !== workspaceId) select(open.id);
+  }, [open, workspaceId, select]);
 
-  const open = workspaces.find(w => w.id === ws) ?? null;
   const workspaceName = open?.name ?? 'Workspace';
+
+  /**
+   * A raw-ID URL keeps working and then quietly becomes the readable one.
+   *
+   * Every link the dashboard has ever produced named a workspace by its ID, so
+   * those bookmarks have to resolve — but leaving them on the ID would mean two
+   * live spellings of every screen and a "copy this URL" that hands somebody
+   * the old one. The rest of the path, the query and the fragment are carried
+   * across untouched, so a deep link into a folder or a filtered activity view
+   * survives the swap.
+   *
+   * `open.slug !== ws` is what stops this looping: a workspace whose slug is
+   * its own ID — the 0009 backfill's fallback for a name that slugifies to
+   * nothing — is already canonical and redirects nowhere.
+   */
+  if (open && open.slug && open.slug !== ws) {
+    return (
+      <Navigate to={`${pathname.replace(wsRoot, `/w/${open.slug}`)}${search}${hash}`} replace />
+    );
+  }
+
   const USER = {
     name: user?.displayName ?? user?.email ?? 'Signed in',
     email: user?.email ?? ''
@@ -117,11 +146,16 @@ function WorkspaceLayout() {
       workspaceSlot={
         <WorkspaceSwitcher
           workspaces={workspaces}
-          currentId={ws}
-          onSelect={id => navigate(`/w/${id}`)}
+          /* The resolved workspace's real ID, not the URL segment — the segment
+             is a slug now, and the switcher marks the current row by ID. */
+          currentId={open?.id ?? workspaceId}
+          onSelect={id => {
+            const target = workspaces.find(w => w.id === id);
+            navigate(`/w/${target?.slug ?? id}`);
+          }}
           onCreate={async name => {
             const workspace = await create(name);
-            navigate(`/w/${workspace.id}`);
+            navigate(`/w/${workspace.slug ?? workspace.id}`);
           }}
         />
       }

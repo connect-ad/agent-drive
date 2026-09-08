@@ -244,6 +244,8 @@ CREATE TABLE workspaces (
   id TEXT PRIMARY KEY,               -- 'ws_' + ULID
   org_id TEXT NOT NULL REFERENCES organizations(id),
   name TEXT NOT NULL,
+  slug TEXT,                         -- dashboard URL segment; unique per org, never regenerated on rename (migration 0009)
+  claimed_at INTEGER,                -- NULL until a sandbox workspace is claimed (migration 0003)
   status TEXT NOT NULL DEFAULT 'active', -- 'active' | 'suspended' | 'deleted'
   plan_override TEXT,                -- NULL = inherit org plan
   storage_bytes_used INTEGER NOT NULL DEFAULT 0,   -- denormalized, reconciled hourly
@@ -255,6 +257,8 @@ CREATE TABLE workspaces (
   updated_at INTEGER NOT NULL
 );
 CREATE INDEX idx_workspaces_org ON workspaces(org_id);
+CREATE UNIQUE INDEX idx_workspaces_org_slug ON workspaces(org_id, slug);
+CREATE INDEX idx_workspaces_unclaimed ON workspaces(claimed_at) WHERE claimed_at IS NULL;
 
 -- Agents: identities distinct from human users
 CREATE TABLE agents (

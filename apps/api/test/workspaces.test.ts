@@ -452,3 +452,91 @@ describe('DELETE /v1/workspaces/:id', () => {
     expect(await errorCode(real)).toBe(await errorCode(invented));
   });
 });
+
+/**
+ * The slug travels with the workspace on both routes the dashboard reads.
+ *
+ * These are HTTP-level on purpose: `slug.test.ts` already proves the generator,
+ * so what is left to get wrong is the wiring - a slug computed and then not
+ * returned is exactly as broken as no slug at all, and is invisible to a unit
+ * test of the function that computed it.
+ */
+describe('workspace slugs over HTTP', () => {
+  it('creates one from the name and returns it', async () => {
+    const token = await mint(OWNER_UID, 'wsowner@example.com');
+    const res = await SELF.fetch(
+      `${URL_BASE}/v1/workspaces`,
+      asUser(token, { name: 'Client One' })
+    );
+
+    const body = (await res.json()) as { workspace: { id: string; slug: string } };
+    expect(body.workspace.slug).toBe('client-one');
+
+    const row = await env.DB.prepare(`SELECT slug FROM workspaces WHERE id = ?`)
+      .bind(body.workspace.id)
+      .first<{ slug: string }>();
+    expect(row?.slug).toBe('client-one');
+  });
+
+  it('suffixes the second workspace with the same name', async () => {
+    const token = await mint(OWNER_UID, 'wsowner@example.com');
+    const first = (await (
+      await SELF.fetch(`${URL_BASE}/v1/workspaces`, asUser(token, { name: 'Repeat' }))
+    ).json()) as { workspace: { slug: string } };
+    const second = (await (
+      await SELF.fetch(`${URL_BASE}/v1/workspaces`, asUser(token, { name: 'Repeat' }))
+    ).json()) as { workspace: { slug: string } };
+
+    expect(first.workspace.slug).toBe('repeat');
+    expect(second.workspace.slug).toBe('repeat-2');
+  });
+
+  it('lists the slug beside the ID, never instead of it', async () => {
+    const token = await mint(OWNER_UID, 'wsowner@example.com');
+    await SELF.fetch(`${URL_BASE}/v1/workspaces`, asUser(token, { name: 'Listed Here' }));
+
+    const body = (await (
+      await SELF.fetch(`${URL_BASE}/v1/workspaces`, asUser(token))
+    ).json()) as { workspaces: { id: string; slug: string; name: string }[] };
+
+    const listed = body.workspaces.find(w => w.name === 'Listed Here');
+    expect(listed?.slug).toBe('listed-here');
+    // The real identifier is still what the API hands back. Settings shows it,
+    // MCP config snippets carry it, and every other route takes it.
+    expect(listed?.id).toMatch(/^ws_/);
+  });
+
+  it('gives a workspace named like an ID a slug that cannot be confused for one', async () => {
+    const token = await mint(OWNER_UID, 'wsowner@example.com');
+    const body = (await (
+      await SELF.fetch(
+        `${URL_BASE}/v1/workspaces`,
+        asUser(token, { name: 'ws_01K4M9XQ2R8T7VBNJH3ZC5D6EF' })
+      )
+    ).json()) as { workspace: { slug: string } };
+
+    expect(body.workspace.slug).not.toMatch(/^ws_/);
+    expect(body.workspace.slug).toBe('ws-01k4m9xq2r8t7vbnjh3zc5d6ef');
+  });
+
+  it('frees the slug again when the workspace is deleted', async () => {
+    const token = await mint(OWNER_UID, 'wsowner@example.com');
+    await SELF.fetch(`${URL_BASE}/v1/workspaces`, asUser(token, { name: 'Keeper' }));
+    const doomed = (await (
+      await SELF.fetch(`${URL_BASE}/v1/workspaces`, asUser(token, { name: 'Recycled' }))
+    ).json()) as { workspace: { id: string; slug: string } };
+    expect(doomed.workspace.slug).toBe('recycled');
+
+    await SELF.fetch(
+      `${URL_BASE}/v1/workspaces/${doomed.workspace.id}`,
+      asDelete(token, { name: 'Recycled' })
+    );
+
+    const again = (await (
+      await SELF.fetch(`${URL_BASE}/v1/workspaces`, asUser(token, { name: 'Recycled' }))
+    ).json()) as { workspace: { slug: string } };
+    // Not `recycled-2`: nothing holds the plain one any more, and handing out an
+    // ever-climbing suffix for a name nobody is using would be a leak of history.
+    expect(again.workspace.slug).toBe('recycled');
+  });
+});

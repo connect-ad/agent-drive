@@ -12,6 +12,7 @@ function workspace(overrides: Partial<WorkspaceRow> = {}): WorkspaceRow {
     id: "ws_TEST",
     org_id: "org_TEST",
     name: "Test",
+    slug: "test",
     status: "active",
     plan_override: null,
     storage_bytes_used: 0,

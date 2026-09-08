@@ -61,7 +61,7 @@ const loadOverview = async (api, workspaceId) => {
 
 export default function Dashboard() {
   const { ws } = useParams();
-  const { canWrite } = useWorkspace();
+  const { canWrite, workspaceId } = useWorkspace();
   const root = `/w/${ws}`;
   const { status, data, error, reload } = useResource(loadOverview);
 
@@ -123,11 +123,14 @@ export default function Dashboard() {
         subtitle="Storage, agents and everything they did to your files."
         meta={
           <>
-            {/* The ID comes from the URL, so it is on screen immediately. The
-                plan waits on `whoami` and is absent until then — showing a
-                placeholder plan would be a decorative number, which is the one
-                thing this dashboard refuses to do. */}
-            <WorkspaceIdChip workspaceId={ws} />
+            {/* The real `ws_...` ID, from the workspace context rather than
+                from the URL. The URL segment is a readable slug now, and this
+                chip is the thing people copy into an API call or an MCP config
+                — showing them the slug there would hand them a value nothing
+                accepts. The plan waits on `whoami` and is absent until then;
+                showing a placeholder plan would be a decorative number, which
+                is the one thing this dashboard refuses to do. */}
+            <WorkspaceIdChip workspaceId={workspaceId} />
             {status === 'loaded' ? <Badge tone="accent">{plan}</Badge> : null}
           </>
         }

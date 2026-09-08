@@ -154,7 +154,7 @@ export default function ApiKeys() {
     {
       key: 'act',
       header: 'Actions',
-      width: 110,
+      width: 210,
       // Revoking is irreversible and there is no un-revoke, so the control that
       // does it must not be discoverable only by hovering an unlabelled icon.
       // It was one; the word is the whole point.
@@ -172,6 +172,18 @@ export default function ApiKeys() {
           >
             Revoke
           </Button>
+          {/*
+            Revocation is a one-way kill switch, matching every other product
+            that issues credentials, and that is a deliberate design rather than
+            a missing feature. A disabled button with no explanation reads as the
+            second one — so the reason sits next to it, where somebody hunting
+            for a reactivate control will actually find it.
+          */}
+          {r.status === 'revoked' ? (
+            <span className="ad-meta" style={{ display: 'block', marginTop: 'var(--s-2)' }}>
+              Revoked keys can&apos;t be reactivated — mint a new key when you need one.
+            </span>
+          ) : null}
         </span>
       )
     }
@@ -312,7 +324,11 @@ export default function ApiKeys() {
       <ConfirmModal
         open={dialog === 'revoke'}
         title={`Revoke ${target ? target.name : 'this key'}?`}
-        description="Any agent using this key loses access on its very next request. This cannot be undone."
+        /* The permanence is stated before the commitment, not implied after it.
+           "This cannot be undone" was already here and was not enough: it reads
+           as "you can't un-press this button", when the thing people need to
+           know is that the credential itself never comes back. */
+        description="Any agent using this key loses access on its very next request. A revoked key can never be reactivated — restoring access means minting a new key and updating whatever was using this one."
         confirmLabel="Revoke key"
         onClose={() => setDialog(null)}
         onConfirm={revoke}

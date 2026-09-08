@@ -45,3 +45,25 @@ uploaded from the documented snippet gets `application/octet-stream`.
 (`workspace-scoped.ts:518`). The route's Zod enum is the only guard. Fails safe,
 because `assertAgentEnabled` refuses anything `!== "active"` — but the type should
 carry the constraint.
+
+**7. An API key with `delete` scope can delete another agent** (raised 8 Sept
+2026, deliberately not changed). `index.ts` routes `DELETE /v1/agents/:id` as
+`{ op: "delete" }`, so any credential holding that op qualifies —
+`agents-keys.test.ts:85` proves it on purpose, and its comment gives the reason
+the capability exists: an admin key must be able to kill an agent without the
+agent's keys outliving it.
+
+The unease is that `delete` mostly means *delete a file*, and using it to also
+authorize destroying an identity lets one agent's credential act on an identity
+it did not issue — the same shape of argument that made
+`DELETE /v1/workspaces/:id` refuse API keys outright. The two are not obviously
+the same: destroying a workspace ends the account's own container, while
+deleting an agent is routine operational work a management key may legitimately
+do, and 05 PART 13 specifies it as scope-gated.
+
+Deciding it means either a new op (`agents:delete`) or a `requireHuman` on the
+route, and either one changes a documented, tested capability. **Recorded rather
+than resolved**, because it is a product decision about the API's contract and
+not a bug. The dashboard's new delete flow does not depend on the answer: it
+calls the same endpoint as an owner or admin, whose role already carries
+`delete`, and a reader is refused by scope.

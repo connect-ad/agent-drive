@@ -13,6 +13,7 @@
 
 import { generateApiKey } from "../lib/keys";
 import { newId } from "../lib/ids";
+import { FALLBACK_SLUG, slugify } from "../lib/slug";
 import { serializeScopes, type KeyScope } from "../auth/scopes";
 
 /** How long a sandbox workspace's usage period runs before it rolls over. */
@@ -86,10 +87,21 @@ export async function provisionSandboxWorkspace(
     db
       .prepare(
         `INSERT INTO workspaces
-           (id, org_id, name, status, period_reset_at, claimed_at, created_at, updated_at)
-         VALUES (?, ?, ?, 'active', ?, NULL, ?, ?)`
+           (id, org_id, name, slug, status, period_reset_at, claimed_at, created_at, updated_at)
+         VALUES (?, ?, ?, ?, 'active', ?, NULL, ?, ?)`
       )
-      .bind(workspaceId, orgId, workspaceName, now + PERIOD_LENGTH_MS, now, now),
+      // The organization two statements above is brand new, so this workspace
+      // is alone in it and no uniqueness query is needed. The fallback covers a
+      // sandbox name that slugifies to nothing at all.
+      .bind(
+        workspaceId,
+        orgId,
+        workspaceName,
+        slugify(workspaceName) || FALLBACK_SLUG,
+        now + PERIOD_LENGTH_MS,
+        now,
+        now
+      ),
 
     db
       .prepare(

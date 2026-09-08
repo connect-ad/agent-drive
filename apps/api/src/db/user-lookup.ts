@@ -8,6 +8,7 @@
  */
 
 import { newId } from "../lib/ids";
+import { slugify } from "../lib/slug";
 
 import type { FirebaseClaims } from "../auth/firebase";
 
@@ -216,10 +217,21 @@ export async function provisionUser(
     db
       .prepare(
         `INSERT INTO workspaces
-           (id, org_id, name, status, period_reset_at, claimed_at, created_at, updated_at)
-         VALUES (?, ?, ?, 'active', ?, ?, ?, ?)`
+           (id, org_id, name, slug, status, period_reset_at, claimed_at, created_at, updated_at)
+         VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?)`
       )
-      .bind(workspaceId, orgId, DEFAULT_WORKSPACE_NAME, periodResetAt(now), now, now, now),
+      // No uniqueness query: the organization on the line above is brand new,
+      // so this is the only workspace in it and nothing can be collided with.
+      .bind(
+        workspaceId,
+        orgId,
+        DEFAULT_WORKSPACE_NAME,
+        slugify(DEFAULT_WORKSPACE_NAME),
+        periodResetAt(now),
+        now,
+        now,
+        now
+      ),
   ]);
 
   return {
@@ -270,10 +282,10 @@ export async function findMembershipForWorkspace(
 export async function listWorkspacesForUser(
   db: D1Database,
   userId: string
-): Promise<{ id: string; name: string; role: string; status: string }[]> {
+): Promise<{ id: string; name: string; slug: string | null; role: string; status: string }[]> {
   const rows = await db
     .prepare(
-      `SELECT w.id, w.name, w.status, m.role
+      `SELECT w.id, w.name, w.slug, w.status, m.role
          FROM workspaces w
          JOIN memberships m ON m.org_id = w.org_id
         WHERE m.user_id = ?
@@ -283,7 +295,7 @@ export async function listWorkspacesForUser(
         ORDER BY w.created_at ASC`
     )
     .bind(userId)
-    .all<{ id: string; name: string; role: string; status: string }>();
+    .all<{ id: string; name: string; slug: string | null; role: string; status: string }>();
   return rows.results;
 }
 

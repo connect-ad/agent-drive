@@ -12,13 +12,18 @@ against a non-default account state (`past_due`, post-period,
 [summary.md](../summary.md): integration tests over those states, and any
 component test at all against `apps/web/src/routes/`, which has none.
 
-`apps/api` has 454 tests across 28 files running in the real Workers runtime
+`apps/api` has 474 tests across 29 files running in the real Workers runtime
 against real Miniflare D1 and R2, with every security-critical storage behaviour
 mutation-tested. See [Skill/1 Build](../Skill/1%20Build.md) for how to run them
 and what mutation testing established.
 
+Migrations are read from the real `.sql` files by `vitest.config.ts` and applied
+to that D1, so **a broken migration fails the suite rather than the deploy** —
+which is how `0009_workspace_slug.sql` was checked before it ever ran against
+dev data.
+
 `apps/web` has a runner — vitest + jsdom + Testing Library, configured in
-`apps/web/vitest.config.js` — and 53 tests across three files.
+`apps/web/vitest.config.js` — and 76 tests across four files.
 `test/dialog-focus.test.jsx` (6) was added to pin the fix for a focus bug that
 made every dialog in the product unusable, and it was checked the only way that
 means anything: the pre-fix components were restored and 4 of the 6 went red.
@@ -33,6 +38,16 @@ and React are all real and only the API client is a stub; and every fixture is
 That pairing is what catches hardcoded UI: a fixed string is correct for exactly
 one workspace, and a single-workspace test never visits the second. The two
 fixtures model the real "My Workspace" and "Abc" the 8 Sept audit compared.
+
+`test/part6-fixes.test.jsx` (23) keeps that pairing and adds two things worth
+copying. It renders **the whole app under the real `WorkspaceProvider`** for the
+URL tests — resolution and redirection live in two different files, and stubbing
+either leaves the only seam that can break untested. And every claim in it was
+**checked by breaking the fix**: removing the slug redirect killed exactly the
+three redirect tests, counting revoked keys as live killed the blast-radius test,
+deleting the reactivation note killed the revoked-row test, and pointing the
+Dashboard ID chip back at the URL param killed both chip tests. A test that
+passes the moment it is written has proved nothing yet.
 
 There is still no Playwright e2e layer.
 [doc 09](../docs/design/09-test-strategy-and-failure-modes.md) specifies

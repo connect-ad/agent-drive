@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   PageHead, Panel, DataTable, Button, IconButton, Icon, Input, Badge,
   Modal, ConfirmModal, EmptyState, Alert, Toast
@@ -54,6 +54,17 @@ export default function Agents() {
   const [dialog, setDialog] = useState(null); // 'create' | 'delete'
   const [target, setTarget] = useState(null);
   const [created, setCreated] = useState(null);
+
+  /**
+   * The agent detail page deletes and then navigates here, because the screen
+   * that did the deleting no longer has anything to show. The outcome travels
+   * in the navigation state so the person lands on a confirmation rather than
+   * on a list that is silently one row shorter — and the key count is the one
+   * the API reported, not the one the dialog estimated.
+   */
+  const { state: navState } = useLocation();
+  const deleted = navState?.deleted ?? null;
+  const deletedKeys = navState?.keysRevoked ?? 0;
   const [toast, setToast] = useState(null);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -168,6 +179,14 @@ export default function Agents() {
         subtitle="The identities your AI systems use to reach this workspace."
         actions={canWrite ? <Button icon={<Icon name="plus" size={14} />} onClick={() => { setFormError(null); setDialog('create'); }}>Create agent</Button> : null}
       />
+
+      {deleted ? (
+        <Alert tone="ok" title={`${deleted} deleted.`}>
+          {deletedKeys === 0
+            ? 'It held no live keys, so nothing lost access.'
+            : `${deletedKeys} ${deletedKeys === 1 ? 'key was' : 'keys were'} revoked. Anything still using ${deletedKeys === 1 ? 'it' : 'them'} lost access immediately, and a revoked key cannot be reactivated.`}
+        </Alert>
+      ) : null}
 
       {created ? (
         <Alert

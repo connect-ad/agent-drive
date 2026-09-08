@@ -13,7 +13,7 @@ task.
 | Path | Holds | Rule |
 |---|---|---|
 | `CLAUDE.md` | This route and the catalog | Source of truth for *where things are*. Not a duplicate of the specs. |
-| `docs/design/` | The specification, `NN-<slug>.md` | 17 documents, PART 1–30. The product's design authority — but see the precedence rule below. |
+| `docs/design/` | The specification, `NN-<slug>.md` | 19 documents, PART 1–30. The product's design authority — but see the precedence rule below. |
 | `design-system/` | Upstream mirror of the Claude Design project | **Read-only.** Byte-identical to the remote (96/96). Changes go into Claude Design, then re-import — never edit here. |
 | `apps/api/` | The Cloudflare Worker: REST + MCP, one deployable | Both surfaces are built and share one authorization chain. MCP tools call the REST handlers rather than reimplementing them, so the two cannot drift. |
 | `infra/terraform/` | All infrastructure as code | One root config, one module, **one workspace per environment** (`dev`, `prod`). No `environments/` directories — see the workspace note below. |
@@ -160,6 +160,28 @@ were not touched. See [002](backlog/002-reconcile-brand-drift.md).
   a screen written for somebody whose invitation was revoked. R2 objects go
   before the D1 rows, matching the purge job: the rows are the only record of
   which objects exist, so losing them first orphans bytes nothing can find.
+- **A workspace slug is an address; the `ws_...` ID is still the identifier.**
+  Dashboard URLs are `/w/{slug}`, and two invariants keep that from becoming a
+  second identity. **A slug can never look like an ID:** `slugify` lowercases and
+  turns every non-alphanumeric into `-`, so no slug can hold an underscore, and a
+  workspace literally named `ws_ABC` slugs to `ws-abc` — which is why resolving a
+  URL segment needs no lookup to know what kind of thing it is. **A slug never
+  changes:** it is derived once at creation and a rename leaves it alone, because
+  the UI has always promised that renaming breaks no URL. Raw-ID URLs still
+  resolve and redirect to the slug, carrying path, query and fragment across. The
+  ID stays on screen everywhere it is genuinely needed — `Dashboard.jsx`'s ID chip
+  read the URL param, which was the ID until slugs existed and would silently have
+  started showing the slug; that chip is the value people paste into an API call.
+- **Migration 0009 deliberately slugifies less than `lib/slug.ts` does.** It
+  backfills every row to its own ID first — guaranteed unique, guaranteed
+  URL-safe, cannot fail on data it has never seen — then upgrades only names made
+  of ASCII letters, digits, spaces and dashes whose slug collides with nothing.
+  Approximating NFKD normalisation and diacritic-stripping in nested `replace()`
+  calls would be a second, subtly different definition of the same function, and
+  the one that runs exactly once on data nobody re-reads afterwards. Uniqueness is
+  per organization (`idx_workspaces_org_slug`), not global; the index is the
+  guarantee and `uniqueWorkspaceSlug` is only advice, so `createWorkspaceForUser`
+  retries a UNIQUE violation rather than pretending the read settled the race.
 - **A screen must compute permissions from the real credential, never from a
   fixture.** The MCP page listed every write tool as available to a key scoped
   `read, list`. The backend was never fooled — `tools/list` filters on scope and
@@ -195,8 +217,14 @@ were not touched. See [002](backlog/002-reconcile-brand-drift.md).
 | 08 | [Claude Code prompt](docs/design/08-claude-code-prompt.md) | Hands-off build prompt — start the backend with this |
 | 09 | [Test strategy](docs/design/09-test-strategy-and-failure-modes.md) | 21 security test cases, failure modes, backup |
 | 10 | [CI/CD, roadmap, ADRs](docs/design/10-cicd-docs-roadmap-and-recommendation.md) | Pipelines, 12-phase roadmap, 8 ADRs |
+| 11 | [Backend implementation prompt](docs/design/11-backend-implementation-prompt.md) | Standalone backend-only build prompt |
 | 12 | [Deployment roadmap · agentdisk.io](docs/design/12-deployment-roadmap-agentdisk-io.md) | The 29-step plan: naming, phases A–G, open decisions |
 | 13 | [Infra & CI/CD prompt](docs/design/13-infra-cicd-implementation-prompt.md) | Executes doc 12 — Terraform, GitHub, Actions. Hands off to doc 11 |
+| 14 | [Admin panel & billing](docs/design/14-admin-panel-and-billing-design.md) | PART 27–29 — staff console, Stripe billing, plan limits |
+| 15 | [Frontend/admin/billing prompt](docs/design/15-frontend-admin-billing-implementation-prompt.md) | Standalone build prompt for doc 14 |
+| 16 | [Firebase auth & launch prompt](docs/design/16-firebase-auth-and-final-launch-prompt.md) | PART 30 — the auth model in force. Read before touching sign-in |
+| 17 | [Dev environment test findings](docs/design/17-dev-environment-live-test-findings.md) | 7 Sept 2026 live pass against `app-dev` |
+| 18 | [Full UI audit & fix prompt](docs/design/18-full-ui-audit-and-fix-prompt.md) | 8 Sept 2026 audit of every menu and tab. **Parts 1–4 only** — the later fix rounds were briefed in conversation, and what they established lives in docs 03/06 and the backlog, not here |
 
 ### Design system — [design-system/](design-system/)
 
@@ -233,7 +261,7 @@ provenance), `ApiKeyDisplay` (show-once), `PermissionSelector` (least privilege)
 | 007 | [Browser-verify the screens](backlog/007-browser-verify-screens.md) | Open — 4 of 31 rendered, no state variants |
 | 008 | [Backend: D1, R2, REST, MCP](backlog/008-backend.md) | Done — REST, MCP and Firebase auth all shipped |
 | 009 | [Wire screens to the API](backlog/009-wire-screens-to-api.md) | Reopened — fixture data remains; see [023](backlog/023-non-functional-ui-controls.md). Scope-name conflict decided: the API's bare names win |
-| 010 | [Test suite](backlog/010-test-suite.md) | Open — 454 API tests, 53 web tests, first route components covered; e2e still uncovered |
+| 010 | [Test suite](backlog/010-test-suite.md) | Open — 474 API tests, 76 web tests, route components covered and mutation-checked; e2e still uncovered |
 | 011 | [Rename `Worlflow.md`](backlog/011-rename-workflow-file.md) | Open — trivial |
 | 012 | [Put the project under git](backlog/012-initialise-git.md) | Done |
 | 013 | [Deploy the dashboard](backlog/013-deploy-dashboard.md) | Done — `app-dev.agentdisk.io` |
@@ -266,8 +294,8 @@ live deployment rather than inferred from the code — see
 person can follow.
 
 ```
-apps/api    454 tests across 28 files · typecheck clean · lint clean
-apps/web    53 tests · 114 modules · build clean
+apps/api    474 tests across 29 files · typecheck clean · lint clean
+apps/web    76 tests · 114 modules · build clean
 Worker      226 KiB gzipped, against Cloudflare's 1 MB limit
 ```
 

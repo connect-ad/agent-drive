@@ -2,7 +2,7 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   PageHead, Panel, Tabs, DataTable, Button, Icon, Badge, Switch, Alert,
-  ApiKeyDisplay, ActivityRow, ConfirmModal, EmptyState, Toast, StatTile
+  ApiKeyDisplay, ActivityRow, ConfirmModal, Modal, Input, EmptyState, Toast, StatTile
 } from '../components/index.js';
 import { useResource } from '../lib/useResource.js';
 import { useWorkspace } from '../lib/workspace.jsx';
@@ -129,6 +129,10 @@ export default function AgentDetails() {
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState(null);
   const [toast, setToast] = useState(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmText, setConfirmText] = useState('');
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState(null);
 
   const loading = status === 'loading';
   const agent = data?.agent ?? null;
@@ -182,6 +186,44 @@ export default function AgentDetails() {
     } finally {
       setBusy(false);
       setConfirmDisable(false);
+    }
+  };
+
+  /**
+   * The blast radius, stated before the button rather than discovered after it.
+   *
+   * "Live" means a key that still authenticates, or would the moment the agent
+   * were re-enabled — active plus blocked. An already-expired or already-revoked
+   * key is counted out, because telling somebody they are about to revoke a
+   * credential that has been dead for a month is noise dressed as a warning.
+   * The API revokes those too; it just costs nobody anything.
+   *
+   * `null` when the key list failed to load, which is not the same as zero and
+   * must not be shown as it.
+   */
+  const liveKeyCount = keys === null ? null : activeKeys.length + blockedKeys.length;
+
+  const deleteAgent = async () => {
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      // The count comes back from the API rather than from the tally above:
+      // this is what was actually revoked, and a key minted in another tab
+      // between opening this dialog and confirming it is in that number.
+      const result = await api.deleteAgent(workspaceId, agentId);
+      const revoked = result?.keysRevoked ?? 0;
+      setConfirmDelete(false);
+      navigate(`/w/${ws}/agents`, {
+        replace: true,
+        state: {
+          deleted: agent?.name ?? 'Agent',
+          keysRevoked: revoked
+        }
+      });
+    } catch (err) {
+      setDeleteError(describeError(err));
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -367,6 +409,36 @@ export default function AgentDetails() {
                   eventRows.slice(0, OVERVIEW_EVENTS).map(e => <ActivityRow key={e.id} {...e} />)
                 )}
               </Panel>
+
+              {/*
+                Same shape as Settings → General's danger zone, deliberately: a
+                destructive action people meet twice should not be two different
+                interactions. Hidden from a reader, who the API refuses anyway —
+                `delete` is not in a reader's scope.
+              */}
+              {canWrite ? (
+                <section aria-label="Danger zone">
+                  <Panel title="Danger zone" className="danger-zone">
+                    <Alert tone="danger" title="Delete this agent">
+                      This permanently deletes <strong>{agent.name}</strong> and revokes every
+                      key it holds. Revoking is not reversible — anything still using one of
+                      those keys needs a new key against a different agent.
+                    </Alert>
+                    <div>
+                      <Button
+                        variant="danger"
+                        onClick={() => {
+                          setConfirmText('');
+                          setDeleteError(null);
+                          setConfirmDelete(true);
+                        }}
+                      >
+                        Delete agent
+                      </Button>
+                    </div>
+                  </Panel>
+                </section>
+              ) : null}
             </>
           ) : null}
 
@@ -452,6 +524,60 @@ export default function AgentDetails() {
         onClose={() => setConfirmDisable(false)}
         onConfirm={() => setStatus('disabled')}
       />
+
+      <Modal
+        open={confirmDelete}
+        title={`Delete ${agent?.name ?? 'this agent'}?`}
+        tone="danger"
+        mark={<Icon name="alert" size={16} />}
+        onClose={() => setConfirmDelete(false)}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setConfirmDelete(false)}>Cancel</Button>
+            <Button
+              variant="danger"
+              loading={deleting}
+              /* Typing the name is the confirmation, and the API checks it for
+                 the workspace delete for the same reason it is asked here: a
+                 destructive action should be impossible to reach by muscle
+                 memory. */
+              disabled={confirmText !== (agent?.name ?? '')}
+              onClick={deleteAgent}
+            >
+              Delete agent
+            </Button>
+          </>
+        }
+      >
+        <Alert tone="danger" title="This cannot be undone">
+          {liveKeyCount === null ? (
+            <>
+              This will permanently delete <strong>{agent?.name}</strong> and revoke every key
+              it holds. The key list could not be loaded, so the number is not shown here —
+              the confirmation afterwards reports what was actually revoked.
+            </>
+          ) : (
+            <>
+              This will permanently delete <strong>{agent?.name}</strong> and revoke its{' '}
+              {liveKeyCount} live {liveKeyCount === 1 ? 'key' : 'keys'}. Revoked keys cannot be
+              reactivated.
+            </>
+          )}
+        </Alert>
+        {liveKeyCount === 0 ? (
+          <Alert tone="warn" title="This agent holds no live keys">
+            Nothing is using it right now, so deleting it takes no access away from anything.
+          </Alert>
+        ) : null}
+        {deleteError ? <Alert tone="danger" title={deleteError} /> : null}
+        <Input
+          label="Confirm"
+          mono
+          placeholder={`Type ${agent?.name ?? 'the agent name'} to confirm`}
+          value={confirmText}
+          onChange={e => setConfirmText(e.target.value)}
+        />
+      </Modal>
 
       {toast ? (
         <div style={{ position: 'fixed', top: 'var(--s-7)', right: 'var(--s-7)', zIndex: 90 }}>

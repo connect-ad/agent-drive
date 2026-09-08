@@ -84,6 +84,29 @@ export function WorkspaceProvider({ children }) {
     rememberWorkspace(id);
   }, []);
 
+  /**
+   * The workspace a `/w/{segment}` URL names, whichever way it names it.
+   *
+   * Slugs are what the dashboard links to now; raw `ws_...` IDs are what every
+   * bookmark, shared link and support article made before this change still
+   * carries, so both have to resolve. They can never be confused for each other
+   * — a slug is lowercase `[a-z0-9-]` and can hold no underscore, an ID always
+   * begins `ws_` — but this checks slugs first regardless, because the slug is
+   * the canonical spelling and an ID hit is what triggers the redirect to it.
+   *
+   * `null` means the segment names nothing this person can reach, which is a
+   * real state: a deleted workspace, a revoked invitation, or a typo.
+   */
+  const resolveWorkspace = useCallback(
+    segment => {
+      if (!segment) return null;
+      return (
+        workspaces.find(w => w.slug === segment) ?? workspaces.find(w => w.id === segment) ?? null
+      );
+    },
+    [workspaces]
+  );
+
   const create = useCallback(
     async name => {
       const { workspace } = await api.createWorkspace(name);
@@ -99,6 +122,12 @@ export function WorkspaceProvider({ children }) {
       api,
       workspaces,
       workspaceId: currentId,
+      /**
+       * The current workspace's URL segment. Falls back to the ID so a
+       * workspace that somehow has no slug still has a working address rather
+       * than a link to `/w/undefined`.
+       */
+      workspaceSlug: workspaces.find(w => w.id === currentId)?.slug ?? currentId,
       workspace: workspaces.find(w => w.id === currentId) ?? null,
       /** 'owner' | 'admin' | 'reader'. Screens hide what a reader cannot do. */
       role: workspaces.find(w => w.id === currentId)?.role ?? null,
@@ -107,9 +136,10 @@ export function WorkspaceProvider({ children }) {
       error,
       select,
       create,
-      refresh
+      refresh,
+      resolveWorkspace
     }),
-    [api, workspaces, currentId, loading, error, select, create, refresh]
+    [api, workspaces, currentId, loading, error, select, create, refresh, resolveWorkspace]
   );
 
   return <WorkspaceContext.Provider value={value}>{children}</WorkspaceContext.Provider>;

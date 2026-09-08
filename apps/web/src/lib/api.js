@@ -82,6 +82,14 @@ export function createApiClient(getToken) {
 
     listWorkspaces: () => request('/v1/workspaces'),
     createWorkspace: name => request('/v1/workspaces', { method: 'POST', body: { name } }),
+    /**
+     * The name is the confirmation, and the API checks it rather than trusting
+     * this client to have asked — so a second frontend, a script or a curl
+     * cannot skip the step that makes the deletion deliberate. No `workspaceId`
+     * option: the workspace is the subject of the URL, not a scope for it.
+     */
+    deleteWorkspace: (workspaceId, name) =>
+      request(`/v1/workspaces/${workspaceId}`, { method: 'DELETE', body: { name } }),
 
     listFiles: (workspaceId, params = {}) => {
       const query = new URLSearchParams(params).toString();

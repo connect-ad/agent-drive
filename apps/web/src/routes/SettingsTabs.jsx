@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
   Panel, DataTable, Select, Input, Button, Icon, Badge, Alert, EmptyState,
   Modal, ConfirmModal, Toast, Checkbox
@@ -256,10 +257,23 @@ export function MembersTab() {
 
 /* ------------------------------ 8.24 Privacy ------------------------------ */
 
+/**
+ * This tab is a *summary* of the privacy policy, and the summary is what drifted.
+ *
+ * It described a first-party auth system that no longer exists — "hashed
+ * password" under account data, and password-reset mail sent by Resend — months
+ * after Firebase took over sign-in. The policy itself at `/privacy` was already
+ * correct (Legal.jsx §3, §7, §10); only this copy of it was stale, which is the
+ * failure mode of restating a document instead of pointing at it.
+ *
+ * So it now says out loud that it is a summary and links to the source. Anything
+ * changed here has to be changed in Legal.jsx too, and Legal.jsx wins.
+ */
 const SUBPROCESSORS = [
   { name: 'Cloudflare', purpose: 'Object storage (R2), database (D1), compute (Workers), CDN', region: 'Global edge' },
+  { name: 'Google (Firebase Authentication)', purpose: 'Sign-in, password storage, and session tokens', region: 'US / Global' },
   { name: 'Stripe', purpose: 'Payment processing and invoicing', region: 'US / EU' },
-  { name: 'Resend', purpose: 'Transactional email (verification, password reset)', region: 'US' }
+  { name: 'Resend', purpose: 'Transactional email (notifications, address verification)', region: 'US' }
 ];
 
 export function PrivacyTab({ soleOwnerOf = 0 }) {
@@ -274,12 +288,16 @@ export function PrivacyTab({ soleOwnerOf = 0 }) {
 
   return (
     <>
-      <Panel title="What we store" subtitle="Rendered from the privacy policy, not just linked to it.">
+      <Panel
+        title="What we store"
+        subtitle="A summary of the privacy policy. The policy itself is the authoritative text."
+        footer={<Button variant="link" as={Link} to="/privacy">Read the full privacy policy</Button>}
+      >
         <dl className="dl">
           <dt>File contents</dt><dd>Stored in object storage in the region you chose. Encrypted at rest.</dd>
           <dt>File metadata</dt><dd>Path, size, MIME type, checksum, and which agent wrote it.</dd>
-          <dt>Audit events</dt><dd>Actor, action, resource, source IP and client string. Retained 12 months.</dd>
-          <dt>Account data</dt><dd>Email, display name, hashed password, session records.</dd>
+          <dt>Audit events</dt><dd>Actor, action, resource, source IP and client string. Kept for the life of the workspace; raw request logs are deleted or aggregated after about 90 days.</dd>
+          <dt>Account data</dt><dd>Your email address, your display name, and the account identifier Firebase issues for you. <strong>No password.</strong> Firebase Authentication owns sign-in, so one never reaches AgentDisk to be stored or hashed.</dd>
           <dt>API keys</dt><dd>Stored only as a hash. We cannot recover a key you lose.</dd>
         </dl>
       </Panel>

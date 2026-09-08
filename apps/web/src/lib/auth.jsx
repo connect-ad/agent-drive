@@ -28,7 +28,10 @@ import {
   confirmPasswordReset,
   onIdTokenChanged,
   updateProfile,
-  verifyBeforeUpdateEmail
+  verifyBeforeUpdateEmail,
+  updatePassword,
+  reauthenticateWithCredential,
+  EmailAuthProvider
 } from 'firebase/auth';
 import { auth, firebaseConfigured, googleProvider, githubProvider } from './firebase.js';
 
@@ -46,15 +49,24 @@ const GENERIC_SIGNIN_FAILURE =
 /**
  * Turn a Firebase error into something a person can act on, without saying more
  * than they are entitled to know.
+ *
+ * `context` exists for one narrow reason. Collapsing "no such account" into
+ * "wrong password" is what stops the *login* form being an oracle for which
+ * addresses are registered here. Re-authenticating somebody who is already
+ * signed in reveals nothing — we and they both already know the account exists —
+ * so there the collapse only makes a wrong password unactionable. Pass
+ * 'reauth' in that case and nowhere else.
  */
-export function describeAuthError(error) {
+export function describeAuthError(error, context = 'signin') {
   const code = error?.code ?? '';
   switch (code) {
     case 'auth/invalid-credential':
     case 'auth/invalid-email':
     case 'auth/user-not-found':
     case 'auth/wrong-password':
-      return GENERIC_SIGNIN_FAILURE;
+      return context === 'reauth'
+        ? "That current password isn't right. Check it and try again."
+        : GENERIC_SIGNIN_FAILURE;
     case 'auth/requires-recent-login':
       return 'For your security, sign out and sign back in before changing this.';
     case 'auth/too-many-requests':
@@ -204,6 +216,38 @@ export function AuthProvider({ children }) {
         // the counter so anything showing the name re-renders.
         await auth.currentUser.getIdToken(true);
         setProfileVersion(v => v + 1);
+      },
+
+      /**
+       * The sign-in methods this account actually has, as Firebase provider
+       * ids ('password', 'google.com', 'github.com'). The Security screen reads
+       * this rather than assuming: an account created with Google has no
+       * password to change, and offering a change-password form to one is the
+       * same class of lie as a hardcoded workspace ID.
+       */
+      providerIds: (user?.providerData ?? []).map(p => p.providerId),
+
+      /**
+       * Change the password, Firebase-side. There is no AgentDisk endpoint
+       * behind this and there must not be: doc 16 PART 30 is explicit that the
+       * Worker never receives, stores or sees a password.
+       *
+       * Firebase requires a recent login before it will accept the change, so
+       * the current password is re-submitted here as a re-authentication rather
+       * than verified by us. That is also what makes the "current password"
+       * field meaningful instead of decorative.
+       */
+      async changePassword(currentPassword, newPassword) {
+        const current = auth?.currentUser;
+        if (!current) throw new Error('not signed in');
+        if (!current.email) {
+          throw new Error('this account has no email address to re-authenticate with');
+        }
+        await reauthenticateWithCredential(
+          current,
+          EmailAuthProvider.credential(current.email, currentPassword)
+        );
+        await updatePassword(current, newPassword);
       },
 
       /**

@@ -13,10 +13,13 @@ import WorkspaceIdChip from '../components-local/WorkspaceIdChip.jsx';
  * URL: /w/{workspaceId}
  *
  * Every figure comes from the API: quotas and plan from `GET /v1/whoami`,
- * recent files from `GET /v1/files`. Where a number has no endpoint behind it
- * yet — the agent count — the tile says so rather than showing a plausible
- * digit, because a dashboard whose numbers are decorative is worse than one
- * with a gap in it: you cannot tell which of the others to trust.
+ * recent files from `GET /v1/files`, the agent count from `GET /v1/agents`.
+ * None of them is decorative, and none may become so — a dashboard with one
+ * made-up number is worse than one with a gap in it, because you cannot tell
+ * which of the others to trust. The agents tile read a fixed "Not built yet"
+ * for long enough that a workspace with a live agent and a workspace with none
+ * rendered identically; if a figure ever loses its endpoint again, say so in
+ * the tile rather than leaving a plausible digit behind.
  */
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? 'https://api-dev.agentdisk.io';
@@ -48,11 +51,12 @@ function relativeTime(iso) {
 }
 
 const loadOverview = async (api, workspaceId) => {
-  const [me, files] = await Promise.all([
+  const [me, files, agents] = await Promise.all([
     api.whoami(workspaceId),
-    api.listFiles(workspaceId, { limit: '5' })
+    api.listFiles(workspaceId, { limit: '5' }),
+    api.listAgents(workspaceId)
   ]);
-  return { me, files: files.files ?? [] };
+  return { me, files: files.files ?? [], agents: agents.agents ?? [] };
 };
 
 export default function Dashboard() {
@@ -72,6 +76,12 @@ export default function Dashboard() {
   const requestsUsed = usage.requests?.used ?? 0;
   const requestsMax = usage.requests?.max ?? 0;
   const fileCount = usage.files?.used ?? 0;
+
+  // `GET /v1/agents` has existed all along; this tile just never called it and
+  // read "Not built yet" on a workspace with a live agent in it.
+  const agents = data?.agents ?? [];
+  const agentCount = agents.length;
+  const activeAgents = agents.filter(a => a.status === 'active').length;
 
   const empty = status === 'loaded' && fileCount === 0;
 
@@ -172,8 +182,14 @@ export default function Dashboard() {
           <StatTile
             label="Agents"
             icon={<Icon name="agent" size={13} />}
-            value="—"
-            sub="Not built yet"
+            value={agentCount.toLocaleString()}
+            sub={
+              agentCount === 0
+                ? 'No agents yet'
+                : activeAgents === agentCount
+                  ? `${activeAgents} active`
+                  : `${activeAgents} active, ${agentCount - activeAgents} disabled`
+            }
             loading={loading}
           />
         </Link>

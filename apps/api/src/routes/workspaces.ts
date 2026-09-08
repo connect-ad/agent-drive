@@ -1,9 +1,10 @@
 /**
- * The two workspace routes a signed-in person needs before they have a
- * workspace to be scoped to.
+ * The workspace routes a signed-in person needs before they have a workspace to
+ * be scoped to.
  *
- *   GET  /v1/workspaces   the ones they can reach, for the switcher
- *   POST /v1/workspaces   create another under their billing account
+ *   GET    /v1/workspaces       the ones they can reach, for the switcher
+ *   POST   /v1/workspaces       create another under their billing account
+ *   DELETE /v1/workspaces/:id   destroy one, and everything inside it
  *
  * Both sit outside `withAuth` deliberately, and it is worth being precise about
  * why rather than treating it as an exception. `withAuth` resolves a workspace
@@ -23,7 +24,7 @@
  */
 
 import { z } from "zod";
-import { forbidden, validationError } from "../lib/errors";
+import { ApiError, forbidden, validationError } from "../lib/errors";
 import { newId } from "../lib/ids";
 import { listWorkspacesForUser } from "../db/user-lookup";
 import type { UserRow } from "../db/user-lookup";
@@ -98,4 +99,154 @@ export async function createWorkspaceForUser(
   // the same fact - one that a later "remove from workspace" could delete while
   // leaving them still the owner.
   return json({ workspace: { id: workspaceId, name: parsed.name, role: "owner" } }, 201);
+}
+
+/**
+ * The caller has to type the workspace's own name back. The dashboard already
+ * asks for it; requiring it at the API too means the confirmation is a property
+ * of the operation rather than of one client, so a script, a curl, or a second
+ * frontend cannot skip the step that makes this deliberate.
+ */
+const deleteSchema = z.object({
+  name: z.string(),
+});
+
+/** R2 accepts up to 1000 keys in one delete. */
+const R2_DELETE_CHUNK = 1000;
+
+/**
+ * DELETE /v1/workspaces/:id - destroy a workspace and everything in it.
+ *
+ * The single most destructive thing this API can do, so the gates are stated
+ * here rather than spread across the handler:
+ *
+ *  - **A person, never an API key.** Routed the same way as `logout-all` and for
+ *    the same reason: an agent key is issued to manage files inside one
+ *    workspace, and a credential that can destroy the workspace it lives in has
+ *    quietly acquired authority over the person who issued it. The MCP tool
+ *    surface omits workspace management on identical grounds (05 PART 14.4).
+ *  - **The account owner, not a workspace admin.** Membership is per workspace;
+ *    ownership is of the billing account above it. Someone invited to administer
+ *    one workspace must not be able to delete it out from under the account.
+ *  - **The name has to be typed back**, as above.
+ *  - **Never the last one.** An account with no workspace has nowhere to land -
+ *    `RequireWorkspace` renders an explanation aimed at somebody whose invitation
+ *    was revoked, which is not this person's situation and offers them nothing.
+ *    Refusing is honest and reversible; stranding them is neither.
+ *
+ * There is no grace period and no soft delete, matching what the dashboard's
+ * confirmation has always said out loud ("This cannot be undone"). A workspace
+ * kept in a deleted-but-recoverable state would also still be holding its name's
+ * UNIQUE slot and its files' bytes, so "deleted" would not mean what a person
+ * reading a storage bill assumes it means.
+ */
+export async function deleteWorkspaceForUser(
+  request: Request,
+  db: D1Database,
+  files: R2Bucket,
+  user: UserRow,
+  workspaceId: string,
+  now: number
+): Promise<Response> {
+  let parsed;
+  try {
+    parsed = deleteSchema.parse(await request.json());
+  } catch {
+    throw validationError(
+      "Send a JSON body with the workspace's exact name, to confirm which one you mean."
+    );
+  }
+
+  // Ownership and existence in one question. Joining through `organizations`
+  // rather than `memberships` is the whole authorization check: only the row
+  // whose org this user *owns* can match, so an admin of the workspace and a
+  // member of another org both fall out as "no such workspace" without a
+  // second query that could be got wrong.
+  const workspace = await db
+    .prepare(
+      `SELECT w.id, w.name
+         FROM workspaces w
+         JOIN organizations o ON o.id = w.org_id
+        WHERE w.id = ? AND o.owner_user_id = ?`
+    )
+    .bind(workspaceId, user.id)
+    .first<{ id: string; name: string }>();
+
+  if (workspace === null) {
+    // Deliberately not distinguishable from "that workspace does not exist".
+    // Telling a non-owner that a workspace is real but not theirs is an oracle
+    // for other people's workspace IDs.
+    throw new ApiError("NOT_FOUND", "No such workspace.");
+  }
+
+  if (parsed.name !== workspace.name) {
+    throw validationError("That name doesn't match this workspace.", {
+      hint: "Type the workspace's name exactly to confirm.",
+    });
+  }
+
+  const reachable = await listWorkspacesForUser(db, user.id);
+  if (reachable.length <= 1) {
+    throw new ApiError("CONFLICT", "This is your only workspace, so it can't be deleted.", {
+      details: { hint: "Create another workspace first, then delete this one." },
+    });
+  }
+
+  // R2 before D1, matching the purge job's ordering and for its reason: the
+  // rows are the only record of which objects exist, so losing them first
+  // orphans bytes that nothing can ever find again. A failure here leaves the
+  // workspace intact and retryable, which is the better half of the trade.
+  const objects = await db
+    .prepare(`SELECT r2_object_key FROM files WHERE workspace_id = ?`)
+    .bind(workspaceId)
+    .all<{ r2_object_key: string }>();
+
+  const keys = objects.results.map(row => row.r2_object_key);
+  for (let i = 0; i < keys.length; i += R2_DELETE_CHUNK) {
+    await files.delete(keys.slice(i, i + R2_DELETE_CHUNK));
+  }
+
+  // Every reference INTO the workspace is cleared before anything is removed.
+  // Within one statement SQLite deletes rows in an arbitrary order and checks
+  // foreign keys immediately, so a self-referencing tree (folders.parent_folder_id)
+  // or one referenced from outside it (files.folder_id) fails whichever way the
+  // DELETE is written - the same trap `deleteRecursive` documents.
+  await db.batch([
+    db.prepare(`UPDATE files SET folder_id = NULL WHERE workspace_id = ?`).bind(workspaceId),
+    db.prepare(`UPDATE folders SET parent_folder_id = NULL WHERE workspace_id = ?`).bind(workspaceId),
+    db
+      .prepare(
+        `DELETE FROM file_tags
+          WHERE file_id IN (SELECT id FROM files WHERE workspace_id = ?)`
+      )
+      .bind(workspaceId),
+    db.prepare(`DELETE FROM files WHERE workspace_id = ?`).bind(workspaceId),
+    db.prepare(`DELETE FROM folders WHERE workspace_id = ?`).bind(workspaceId),
+    // Keys before agents: api_keys.agent_id points at agents.
+    db.prepare(`DELETE FROM api_keys WHERE workspace_id = ?`).bind(workspaceId),
+    db.prepare(`DELETE FROM agents WHERE workspace_id = ?`).bind(workspaceId),
+    db.prepare(`DELETE FROM webhooks WHERE workspace_id = ?`).bind(workspaceId),
+    db.prepare(`DELETE FROM audit_events WHERE workspace_id = ?`).bind(workspaceId),
+    // Only the rows naming this workspace. An org-wide membership has a NULL
+    // workspace_id and grants the other workspaces on the same bill.
+    db.prepare(`DELETE FROM memberships WHERE workspace_id = ?`).bind(workspaceId),
+    db.prepare(`DELETE FROM workspaces WHERE id = ?`).bind(workspaceId),
+  ]);
+
+  // Logged, not audited, and that is forced rather than chosen: `audit_events`
+  // is workspace-scoped by foreign key, so the one row describing a workspace's
+  // destruction is the one row it cannot hold. The structured log is where this
+  // event survives.
+  console.log(
+    JSON.stringify({
+      level: "warn",
+      message: "workspace deleted",
+      workspaceId,
+      userId: user.id,
+      files: keys.length,
+      at: new Date(now).toISOString(),
+    })
+  );
+
+  return json({ id: workspaceId, deleted: true, files: keys.length });
 }

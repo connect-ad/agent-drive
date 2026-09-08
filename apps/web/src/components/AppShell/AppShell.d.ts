@@ -9,6 +9,8 @@ export interface AppShellProps {
   /** Replaces the (inert) workspace card with a real control. Wins over `workspace`. */
   workspaceSlot?: ReactNode;
   user?: { name: string; email: string };
+  /** Replaces the (inert) account card with a real control. Wins over `user`. */
+  userSlot?: ReactNode;
   /** Left side of the top bar — breadcrumb or search, never a duplicate page title. */
   topbar?: ReactNode;
   topbarActions?: ReactNode;

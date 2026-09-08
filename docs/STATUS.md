@@ -19,8 +19,8 @@ empty and `app.agentdisk.io` does not resolve. That is deliberate and unchanged:
 dev gets proven first.
 
 ```
-apps/api    441 tests across 28 files · typecheck clean · lint clean
-apps/web    6 tests · 111 modules · build clean
+apps/api    454 tests across 28 files · typecheck clean · lint clean
+apps/web    53 tests · 114 modules · build clean
 Worker      226 KiB gzipped, against Cloudflare's 1 MB limit
 ```
 
@@ -39,7 +39,7 @@ no MCP layer, no human authentication, and no audit trail. All four are done.
 | 0 of 10 MCP tools | All 10, filtered by the calling key's scope |
 | No `scheduled` handler; deleted objects never purged | Hourly purge and counter reconciliation |
 | Presigned round-trip blocked on a credential | Proven: 2 MB in and out, SHA-256 identical |
-| 19 arrays of fixture data in the dashboard | None. Every screen reads the API or says it isn't built |
+| 19 arrays of fixture data in the dashboard | Most replaced. **Corrected 8 Sept 2026:** fixture data and mock handlers remain across six route files — [backlog/023](../backlog/023-non-functional-ui-controls.md) |
 
 ---
 
@@ -68,8 +68,12 @@ Every tool calls the REST handler that already does the work — the two surface
 are the same code, so they cannot drift in what they allow.
 
 **Billing.** Portal depth. Stripe Customer created lazily, webhook verified
-against the raw body before any field is read, `past_due` blocks writes and
-leaves reads working.
+against the raw body before any field is read. **Corrected 8 Sept 2026:** the
+`past_due` write block does *not* fire — no route populates `requirement.demand`,
+so the middleware always evaluates against a hardcoded `"active"`. Reads and
+writes both continue on an unpaid account, while the API reports
+`writesBlocked: true` and the dashboard says uploads are paused.
+See [backlog/017](../backlog/017-enforce-declared-limits.md).
 
 ---
 
@@ -125,10 +129,10 @@ dashboard, which is the actual risk that item tracks.
 
 | Claim | How |
 |---|---|
-| 441 tests | `npx vitest run` in `apps/api` |
+| 454 tests | `npx vitest run` in `apps/api` |
 | Typecheck, lint | `npm run typecheck`, `npm run lint` |
-| 6 tests | `npm test` in `apps/web` |
-| 111 modules | `npm run build` in `apps/web` |
+| 53 tests | `npm test` in `apps/web` |
+| 113 modules | `npm run build` in `apps/web` |
 | Bundle size | `npx wrangler deploy --dry-run` |
 | Presigned round-trip | Real 2 MB file, PUT to R2, `complete`, download, SHA-256 compared |
 | Agent key end to end | Real Firebase signup → agent → key → `whoami` → upload → list |

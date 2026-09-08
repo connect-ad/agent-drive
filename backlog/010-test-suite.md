@@ -1,20 +1,38 @@
 # 010 · Test suite
 
-**Status:** Open — `apps/api` is covered; `apps/web` has a runner and one file;
-e2e does not exist
+**Status:** Open — `apps/api` is covered at the unit level; `apps/web` now has
+its first route-component tests; e2e does not exist
 
-`apps/api` has 441 tests across 28 files running in the real Workers runtime
+The 8 Sept 2026 audit established what the current shape cannot catch. 444 API
+tests passed while four declared limits went unenforced
+([017](017-enforce-declared-limits.md)) — because the helpers are tested as pure
+functions with hand-passed arguments, and nothing drives a real HTTP request
+against a non-default account state (`past_due`, post-period,
+`pending`-without-`complete`). Two additions would have caught every finding in
+[summary.md](../summary.md): integration tests over those states, and any
+component test at all against `apps/web/src/routes/`, which has none.
+
+`apps/api` has 454 tests across 28 files running in the real Workers runtime
 against real Miniflare D1 and R2, with every security-critical storage behaviour
 mutation-tested. See [Skill/1 Build](../Skill/1%20Build.md) for how to run them
 and what mutation testing established.
 
-`apps/web` now has a runner — vitest + jsdom + Testing Library, configured in
-`apps/web/vitest.config.js` — and one file, `test/dialog-focus.test.jsx` (6
-tests). It was added to pin the fix for a focus bug that made every dialog in
-the product unusable, and it was checked the only way that means anything: the
-pre-fix components were restored and 4 of the 6 went red. The runner arriving
-this way is the point — the harness is now there, so the next web test costs
-nothing to add.
+`apps/web` has a runner — vitest + jsdom + Testing Library, configured in
+`apps/web/vitest.config.js` — and 53 tests across three files.
+`test/dialog-focus.test.jsx` (6) was added to pin the fix for a focus bug that
+made every dialog in the product unusable, and it was checked the only way that
+means anything: the pre-fix components were restored and 4 of the 6 went red.
+`test/workspace-switcher.test.jsx` (16) covers the sidebar switcher.
+
+`test/qa-fixes.test.jsx` (31) is the first to reach **route components** —
+Dashboard, Settings and McpConnection — and its shape is the point, because it
+answers this item's own complaint that a suite can pass while the screens lie.
+It mocks no further down than `useWorkspace`, so `useResource`, the components
+and React are all real and only the API client is a stub; and every fixture is
+**paired**, rendering the same element for a workspace with data and one without.
+That pairing is what catches hardcoded UI: a fixed string is correct for exactly
+one workspace, and a single-workspace test never visits the second. The two
+fixtures model the real "My Workspace" and "Abc" the 8 Sept audit compared.
 
 There is still no Playwright e2e layer.
 [doc 09](../docs/design/09-test-strategy-and-failure-modes.md) specifies

@@ -14,7 +14,11 @@ import { withAuth, type Requirement, type Handler } from "./middleware/auth";
 import { whoami } from "./routes/whoami";
 import { logoutAll } from "./routes/logout-all";
 import { createWorkspace } from "./routes/create-workspace";
-import { createWorkspaceForUser, listWorkspaces } from "./routes/workspaces";
+import {
+  createWorkspaceForUser,
+  deleteWorkspaceForUser,
+  listWorkspaces,
+} from "./routes/workspaces";
 import { createAgent, deleteAgent, getAgent, listAgents, patchAgent } from "./routes/agents";
 import { createKey, listKeys, revokeKey } from "./routes/keys";
 import { handleMcp } from "./mcp/server";
@@ -282,6 +286,44 @@ export default {
         return request.method === "GET"
           ? await listWorkspaces(env.DB, user)
           : await createWorkspaceForUser(request, env.DB, user, now);
+      }
+
+      // DELETE /v1/workspaces/:id. Its own block rather than a branch of the
+      // one above, because it is the only workspace route with a path segment -
+      // and because an API key must not reach it at all. Falling through to the
+      // shared `authed()` chain would be wrong twice over: that chain resolves
+      // the workspace from the credential, which is circular for a route whose
+      // subject is the workspace itself, and it accepts API keys.
+      {
+        const match = /^\/v1\/workspaces\/([^/]+)$/.exec(url.pathname);
+        if (match !== null && request.method === "DELETE") {
+          const token = extractBearerToken(request);
+          if (token === null) throw unauthorized("no bearer token in the Authorization header");
+          if (isApiKeyToken(token)) {
+            // An agent key must never be able to destroy the workspace it was
+            // issued to work inside.
+            throw unauthorized("api keys cannot delete workspaces");
+          }
+          const firebase = firebaseConfig(env);
+          if (firebase === null) {
+            throw unauthorized("no FIREBASE_PROJECT_ID configured; user tokens cannot be verified");
+          }
+          const now = Date.now();
+          const { user } = await resolveVerifiedUser(token, {
+            db: env.DB,
+            cache: firebase.cache,
+            projectId: firebase.projectId,
+            now,
+          });
+          return await deleteWorkspaceForUser(
+            request,
+            env.DB,
+            env.FILES,
+            user,
+            decodeURIComponent(match[1] as string),
+            now
+          );
+        }
       }
 
       // 30.4. A user ending their own sessions; refused for an API key, which

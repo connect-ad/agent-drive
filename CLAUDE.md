@@ -19,11 +19,12 @@ task.
 | `infra/terraform/` | All infrastructure as code | One root config, one module, **one workspace per environment** (`dev`, `prod`). No `environments/` directories — see the workspace note below. |
 | `.github/workflows/` | CI and deployment pipelines | **Three areas, split by what they own: `infra`, `backend`, `frontend`.** Each is one reusable engine plus thin per-environment callers, so prod can never drift from dev. Path filters mean an `apps/web` push moves nothing else. `frontend.yml` is called once per app (dashboard, console). `ci.yml` gates PRs and covers all three apps. `deploy-all-dev.yml` is the ordered manual full deploy. |
 | `apps/admin/` | The internal staff console, at `admin-dev.agentdisk.io` | Its own origin on purpose: 14 PART 27.2 scopes the staff session cookie to it, so a staff and a customer credential cannot reach each other in a browser. Deliberately does not import `design-system/` — looking different from the customer dashboard is how a support engineer knows which one they are in. |
-| `apps/web/` | The dashboard SPA, live at `app-dev.agentdisk.io` | `src/components/` is vendored from `design-system/`; `src/components/index.js` is generated. Hand-written code lives in `src/routes/` and `src/components-local/`. `src/components/AppShell.jsx` is the one vendored file that deliberately diverges from the mirror, for two reasons awaiting the same upstream trip — [015](backlog/015-rename-in-design-system.md) and [016](backlog/016-upstream-workspace-switcher.md). Deployed as a Workers static-assets Worker, not Pages — see [013](backlog/013-deploy-dashboard.md). |
+| `apps/web/` | The dashboard SPA, live at `app-dev.agentdisk.io` | `src/components/` is vendored from `design-system/`; `src/components/index.js` is generated. Hand-written code lives in `src/routes/` and `src/components-local/`. `src/components/AppShell.jsx` is the one vendored file that deliberately diverges from the mirror, for three reasons awaiting the same upstream trip — [015](backlog/015-rename-in-design-system.md), [016](backlog/016-upstream-workspace-switcher.md) and [026](backlog/026-upstream-account-menu.md). Deployed as a Workers static-assets Worker, not Pages — see [013](backlog/013-deploy-dashboard.md). |
 | `Skill/` | Reusable how-to knowledge, `<N> <Name>.md` | Procedures, commands and their calibration. Not the specification — that is `docs/design/`. |
 | `backlog/` | Outstanding tasks, `NNN-<slug>.md` | Status lives in the file; a finished item stays as a record. |
 | `.design-sync/` | Sync state and hard-won process notes | `config.json` pins the Claude Design project. `NOTES.md` holds gotchas that cost real time — read it before any file transfer. |
 | `.claude/commands/` | Custom slash commands, `<name>.md` | [`cpack`](.claude/commands/cpack.md) persists session knowledge into the docs below; [`cpush`](.claude/commands/cpush.md) commits and tags. Both are auto-discovered by Claude Code; no registration step. |
+| `summary.md` | External code audit, 8 Sept 2026 | Read-only record of one review, with file:line evidence for every claim. Its open work is tracked as [017](backlog/017-enforce-declared-limits.md)–[025](backlog/025-authorization-hardening.md); the backlog is where that work lives, not here. |
 | `Worlflow.md` | The handoff diagram | Filename typo is known — see [011](backlog/011-rename-workflow-file.md). |
 
 This page is the only index — no folder carries its own `README.md`. The root
@@ -151,6 +152,29 @@ were not touched. See [002](backlog/002-reconcile-brand-drift.md).
   SQLite deletes rows in arbitrary order and checks foreign keys immediately, so
   a self-referencing tree (`folders.parent_folder_id`) or one referenced from
   outside (`files.folder_id`) fails whichever way the DELETE is ordered.
+- **Destroying a workspace is a person's act, never a credential's.** `DELETE
+  /v1/workspaces/:id` refuses an API key outright, requires the *account* owner
+  rather than a workspace admin, requires the workspace's name in the request
+  body — so the confirmation belongs to the operation and not to one client —
+  and refuses the caller's last workspace, because an account with none lands on
+  a screen written for somebody whose invitation was revoked. R2 objects go
+  before the D1 rows, matching the purge job: the rows are the only record of
+  which objects exist, so losing them first orphans bytes nothing can find.
+- **A screen must compute permissions from the real credential, never from a
+  fixture.** The MCP page listed every write tool as available to a key scoped
+  `read, list`. The backend was never fooled — `tools/list` filters on scope and
+  `tools/call` re-asserts it — but a screen that contradicts the scope model
+  teaches people to distrust the thing protecting them. Tool availability now
+  comes from the connecting key's own `scopes.ops`, and the badges say `read` /
+  `write` / `delete` / `list`, which is the vocabulary the API and the Create-key
+  modal both use. The `files:*` spelling exists only in the design-system's
+  `mcpTools` fixture and matches nothing in this product.
+- **Settings → Privacy is a summary of `routes/Legal.jsx`, which is the
+  authoritative text.** The tab restated the policy instead of pointing at it,
+  and went on describing a hashed password and Resend-sent password resets for
+  months after Firebase took over sign-in, while `/privacy` itself was correct.
+  Change both together, and Legal.jsx wins. Its own "reviewed by no lawyer"
+  banner is still standing.
 
 ---
 
@@ -208,14 +232,25 @@ provenance), `ApiKeyDisplay` (show-once), `PermissionSelector` (least privilege)
 | 006 | [Upstream the Drawer](backlog/006-upstream-drawer.md) | Open — design-system gap |
 | 007 | [Browser-verify the screens](backlog/007-browser-verify-screens.md) | Open — 4 of 31 rendered, no state variants |
 | 008 | [Backend: D1, R2, REST, MCP](backlog/008-backend.md) | Done — REST, MCP and Firebase auth all shipped |
-| 009 | [Wire screens to the API](backlog/009-wire-screens-to-api.md) | Done — no fixture data remains |
-| 010 | [Test suite](backlog/010-test-suite.md) | Open — 441 API tests, 6 web tests; e2e still uncovered |
+| 009 | [Wire screens to the API](backlog/009-wire-screens-to-api.md) | Reopened — fixture data remains; see [023](backlog/023-non-functional-ui-controls.md). Scope-name conflict decided: the API's bare names win |
+| 010 | [Test suite](backlog/010-test-suite.md) | Open — 454 API tests, 53 web tests, first route components covered; e2e still uncovered |
 | 011 | [Rename `Worlflow.md`](backlog/011-rename-workflow-file.md) | Open — trivial |
 | 012 | [Put the project under git](backlog/012-initialise-git.md) | Done |
 | 013 | [Deploy the dashboard](backlog/013-deploy-dashboard.md) | Done — `app-dev.agentdisk.io` |
 | 014 | [R2 signing credential](backlog/014-r2-signing-credential.md) | Done — `R2_FILES_*` set on the `dev` environment |
 | 015 | [Rename in the design system](backlog/015-rename-in-design-system.md) | Open — upstream change, then re-import |
 | 016 | [Upstream the workspace switcher](backlog/016-upstream-workspace-switcher.md) | Open — `AppShell.workspaceSlot` and a selection menu |
+| 017 | [Enforce the declared limits](backlog/017-enforce-declared-limits.md) | Open — billing block, period reset, request count and plan sub-limits all unenforced |
+| 018 | [Reclaim abandoned uploads](backlog/018-reclaim-abandoned-uploads.md) | Open — `pending` rows and their objects are never swept |
+| 019 | [Rate-limit the authenticated surface](backlog/019-rate-limit-authenticated-surface.md) | Open — only the sandbox route is limited |
+| 020 | [Staff console defects](backlog/020-staff-console-defects.md) | Open — fleet search throws; force-logout 500s after succeeding |
+| 021 | [Audit-trail gaps](backlog/021-audit-trail-gaps.md) | Open — recursive folder delete, move, copy, restore unrecorded |
+| 022 | [Finish webhooks](backlog/022-webhook-gaps.md) | Open — 4 of 6 events never emitted; secret stored in plaintext |
+| 023 | [Non-functional UI controls](backlog/023-non-functional-ui-controls.md) | Open — Tier 2 closed and 3 of 8 false successes fixed; 5 remain |
+| 024 | [Pricing page drift](backlog/024-pricing-page-drift.md) | Open — every number contradicts `plans.ts`; no purchase path |
+| 025 | [Authorization hardening](backlog/025-authorization-hardening.md) | Open — agent keys can read billing; five smaller items |
+| 026 | [Upstream the account menu](backlog/026-upstream-account-menu.md) | Open — `AppShell.userSlot`; third divergence in the vendored shell |
+| 027 | [Files page first paint](backlog/027-files-page-first-paint.md) | Open — three serial round trips before the first file query; measured, not slow |
 
 ---
 
@@ -231,8 +266,8 @@ live deployment rather than inferred from the code — see
 person can follow.
 
 ```
-apps/api    441 tests across 28 files · typecheck clean · lint clean
-apps/web    22 tests · 112 modules · build clean
+apps/api    454 tests across 28 files · typecheck clean · lint clean
+apps/web    53 tests · 114 modules · build clean
 Worker      226 KiB gzipped, against Cloudflare's 1 MB limit
 ```
 
@@ -257,7 +292,9 @@ inviting somebody into one client's workspace does not hand them the one beside
 it on the same bill. Roles are owner / admin / reader.
 
 The REST surface covers files (both upload paths, move, copy, soft delete,
-restore), folders, search, agents, keys, members, webhooks, activity and billing.
+restore), folders, search, agents, keys, members, webhooks, activity, billing,
+and workspaces — including `DELETE /v1/workspaces/:id`, which destroys one and
+everything in it.
 The MCP server exposes ten tools at `/mcp` in the same Worker — each one calls
 the REST handler that already does the work, so the two surfaces are literally
 the same code and cannot drift in what they allow.
@@ -274,6 +311,13 @@ reconciles the usage counters against the rows.
   tags, and the response names the fields it looked at.
 - **`openapi.yaml`**, and the generated docs site.
 - **Production.**
+
+A second category, found by the 8 Sept 2026 audit ([summary.md](summary.md)):
+things that *appear* built and are not connected. Several declared limits are
+never enforced — the `past_due` write block above all — and a set of dashboard
+controls report success for work that never happened. The isolation and
+authentication core is sound; the wiring around it is not finished. See
+[017](backlog/017-enforce-declared-limits.md)–[025](backlog/025-authorization-hardening.md).
 
 ### Faults found only by running it
 

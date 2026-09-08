@@ -3,7 +3,7 @@ import { Icon } from '../Icon/Icon.jsx';
 import { IconButton } from '../Button/IconButton.jsx';
 
 export function AppShell({
-  nav = [], active, workspace, workspaceSlot, user, topbar, topbarActions, children, flush = false, onNavigate, className = '', ...rest
+  nav = [], active, workspace, workspaceSlot, user, userSlot, topbar, topbarActions, children, flush = false, onNavigate, className = '', ...rest
 }) {
   const [open, setOpen] = useState(false);
   return (
@@ -45,16 +45,24 @@ export function AppShell({
             </div>
           ))}
         </div>
-        {user ? (
+        {/* Same arrangement as `workspaceSlot` above, and for the same reason:
+            the built-in card is a *display* of who is signed in, so its chevron
+            promises a menu this component has no state to own. `userSlot` lets a
+            host put a real one there (AgentDisk puts its account menu there)
+            without AppShell growing menu state. When neither is given, the card
+            renders without a chevron rather than advertising a menu that is not
+            behind it. */}
+        {userSlot ? (
+          <div className="shell__foot">{userSlot}</div>
+        ) : user ? (
           <div className="shell__foot">
-            <button type="button" className="shell__user">
+            <div className="shell__user" style={{ cursor: 'default' }}>
               <span className="avatar" aria-hidden="true">{(user.name || 'U').slice(0, 1).toUpperCase()}</span>
               <span style={{ minWidth: 0, flex: 1 }}>
                 <span className="ad-truncate" style={{ display: 'block', fontSize: 13, fontWeight: 500 }}>{user.name}</span>
                 <span className="ad-truncate" style={{ display: 'block', fontSize: 11, color: 'var(--ink-3)' }}>{user.email}</span>
               </span>
-              <Icon name="chevronUpDown" size={14} />
-            </button>
+            </div>
           </div>
         ) : null}
       </nav>

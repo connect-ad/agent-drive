@@ -229,3 +229,226 @@ describe('GET /v1/workspaces', () => {
     expect(res.status).toBe(404);
   });
 });
+
+/* ------------------------ DELETE /v1/workspaces/:id ----------------------- */
+
+/**
+ * The most destructive thing this API can do, so the tests are mostly about the
+ * gates rather than the deletion: who is refused, and that a refusal really
+ * leaves the workspace standing. The cascade test exists for a different
+ * reason — `folders.parent_folder_id` references itself and `files.folder_id`
+ * points into the same subtree, which is the shape that fails whichever order a
+ * single DELETE is written in.
+ */
+
+function asDelete(token: string, body: unknown): RequestInit {
+  return {
+    method: 'DELETE',
+    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  };
+}
+
+/** Two workspaces under the owner's account, so deleting one is ever allowed. */
+async function twoOwned(token: string): Promise<{ keep: string; doomed: string }> {
+  const keep = (await (
+    await SELF.fetch(`${URL_BASE}/v1/workspaces`, asUser(token, { name: 'Keep' }))
+  ).json()) as { workspace: { id: string } };
+  const doomed = (await (
+    await SELF.fetch(`${URL_BASE}/v1/workspaces`, asUser(token, { name: 'Doomed' }))
+  ).json()) as { workspace: { id: string } };
+  return { keep: keep.workspace.id, doomed: doomed.workspace.id };
+}
+
+/** Fill a workspace with one of everything that points at it. */
+async function fill(workspaceId: string): Promise<void> {
+  await env.FILES.put(`ws/${workspaceId}/file_DOOMED`, 'bytes');
+  await env.DB.batch([
+    env.DB.prepare(
+      `INSERT INTO folders (id, workspace_id, parent_folder_id, name, path, created_by, created_at)
+       VALUES ('fld_ROOT', ?, NULL, 'docs', '/docs', ?, ?)`
+    ).bind(workspaceId, OWNER, NOW),
+    // A child folder, so the self-referencing parent_folder_id is really exercised.
+    env.DB.prepare(
+      `INSERT INTO folders (id, workspace_id, parent_folder_id, name, path, created_by, created_at)
+       VALUES ('fld_CHILD', ?, 'fld_ROOT', 'sub', '/docs/sub', ?, ?)`
+    ).bind(workspaceId, OWNER, NOW),
+    env.DB.prepare(
+      `INSERT INTO files (id, workspace_id, folder_id, name, path, r2_object_key, size_bytes,
+                          mime_type, status, created_by, created_at, updated_at)
+       VALUES ('file_DOOMED', ?, 'fld_CHILD', 'a.txt', '/docs/sub/a.txt', ?, 5,
+               'text/plain', 'active', ?, ?, ?)`
+    ).bind(workspaceId, `ws/${workspaceId}/file_DOOMED`, OWNER, NOW, NOW),
+    env.DB.prepare(`INSERT INTO file_tags (file_id, tag) VALUES ('file_DOOMED', 'draft')`),
+    env.DB.prepare(
+      `INSERT INTO agents (id, workspace_id, name, status, created_by_user_id, created_at)
+       VALUES ('agt_DOOMED', ?, 'bot', 'active', ?, ?)`
+    ).bind(workspaceId, OWNER, NOW),
+    env.DB.prepare(
+      `INSERT INTO api_keys (id, workspace_id, agent_id, name, key_prefix, key_last_four,
+                             key_hash, scopes, created_by_user_id, created_at)
+       VALUES ('key_DOOMED', ?, 'agt_DOOMED', 'k', 'ad_live_x', 'abcd', 'hash_DOOMED',
+               '{"ops":["read"],"pathPrefix":"/*"}', ?, ?)`
+    ).bind(workspaceId, OWNER, NOW),
+    env.DB.prepare(
+      `INSERT INTO webhooks (id, workspace_id, url, secret, events, created_at)
+       VALUES ('wh_DOOMED', ?, 'https://example.com/h', 'enc', '["file.created"]', ?)`
+    ).bind(workspaceId, NOW),
+    env.DB.prepare(
+      `INSERT INTO audit_events (id, workspace_id, actor_type, actor_id, action, result, created_at)
+       VALUES ('aud_DOOMED', ?, 'user', ?, 'file.upload', 'success', ?)`
+    ).bind(workspaceId, OWNER, NOW),
+    env.DB.prepare(
+      `INSERT INTO memberships (id, org_id, user_id, workspace_id, role, created_at)
+       VALUES ('mem_DOOMED', 'org_WSOWNED', ?, ?, 'reader', ?)`
+    ).bind(GUEST, workspaceId, NOW),
+  ]);
+}
+
+async function countIn(table: string, workspaceId: string): Promise<number> {
+  const row = await env.DB.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE workspace_id = ?`)
+    .bind(workspaceId)
+    .first<{ n: number }>();
+  return row?.n ?? 0;
+}
+
+async function errorCode(res: Response): Promise<string> {
+  const body = (await res.json()) as { error?: { code?: string }; code?: string };
+  return body.error?.code ?? body.code ?? '';
+}
+
+describe('DELETE /v1/workspaces/:id', () => {
+  it('deletes a workspace the caller owns', async () => {
+    const token = await mint(OWNER_UID, 'wsowner@example.com');
+    const { doomed } = await twoOwned(token);
+
+    const res = await SELF.fetch(`${URL_BASE}/v1/workspaces/${doomed}`, asDelete(token, { name: 'Doomed' }));
+    expect(res.status).toBe(200);
+
+    const row = await env.DB.prepare(`SELECT id FROM workspaces WHERE id = ?`).bind(doomed).first();
+    expect(row).toBeNull();
+  });
+
+  it('takes every row that pointed at it, and the R2 objects too', async () => {
+    const token = await mint(OWNER_UID, 'wsowner@example.com');
+    const { doomed } = await twoOwned(token);
+    await fill(doomed);
+
+    const res = await SELF.fetch(`${URL_BASE}/v1/workspaces/${doomed}`, asDelete(token, { name: 'Doomed' }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ deleted: true, files: 1 });
+
+    for (const table of ['files', 'folders', 'agents', 'api_keys', 'webhooks', 'audit_events', 'memberships']) {
+      expect(await countIn(table, doomed)).toBe(0);
+    }
+    const tag = await env.DB.prepare(`SELECT tag FROM file_tags WHERE file_id = 'file_DOOMED'`).first();
+    expect(tag).toBeNull();
+    expect(await env.FILES.get(`ws/${doomed}/file_DOOMED`)).toBeNull();
+  });
+
+  it('leaves the sibling workspace and the org-wide membership alone', async () => {
+    const token = await mint(OWNER_UID, 'wsowner@example.com');
+    const { keep, doomed } = await twoOwned(token);
+    await fill(doomed);
+
+    await SELF.fetch(`${URL_BASE}/v1/workspaces/${doomed}`, asDelete(token, { name: 'Doomed' }));
+
+    const kept = await env.DB.prepare(`SELECT id FROM workspaces WHERE id = ?`).bind(keep).first();
+    expect(kept).not.toBeNull();
+    // The owner's membership names no workspace, so it grants the rest of the
+    // account and must survive one workspace being destroyed.
+    const orgWide = await env.DB.prepare(
+      `SELECT id FROM memberships WHERE user_id = ? AND workspace_id IS NULL`
+    ).bind(OWNER).first();
+    expect(orgWide).not.toBeNull();
+  });
+
+  it('refuses to leave the caller with no workspace at all', async () => {
+    const token = await mint(OWNER_UID, 'wsowner@example.com');
+    const only = (await (
+      await SELF.fetch(`${URL_BASE}/v1/workspaces`, asUser(token, { name: 'Solo' }))
+    ).json()) as { workspace: { id: string } };
+
+    const res = await SELF.fetch(
+      `${URL_BASE}/v1/workspaces/${only.workspace.id}`,
+      asDelete(token, { name: 'Solo' })
+    );
+    expect(res.status).toBe(409);
+    const row = await env.DB.prepare(`SELECT id FROM workspaces WHERE id = ?`)
+      .bind(only.workspace.id).first();
+    expect(row).not.toBeNull();
+  });
+
+  it('refuses a name that does not match, and changes nothing', async () => {
+    const token = await mint(OWNER_UID, 'wsowner@example.com');
+    const { doomed } = await twoOwned(token);
+
+    const res = await SELF.fetch(`${URL_BASE}/v1/workspaces/${doomed}`, asDelete(token, { name: 'Doomd' }));
+    expect(res.status).toBe(400);
+    const row = await env.DB.prepare(`SELECT id FROM workspaces WHERE id = ?`).bind(doomed).first();
+    expect(row).not.toBeNull();
+  });
+
+  it('refuses a body with no name at all', async () => {
+    const token = await mint(OWNER_UID, 'wsowner@example.com');
+    const { doomed } = await twoOwned(token);
+    const res = await SELF.fetch(`${URL_BASE}/v1/workspaces/${doomed}`, asDelete(token, {}));
+    expect(res.status).toBe(400);
+    const row = await env.DB.prepare(`SELECT id FROM workspaces WHERE id = ?`).bind(doomed).first();
+    expect(row).not.toBeNull();
+  });
+
+  it('refuses an API key, whatever its scope', async () => {
+    const { token } = await seedApiKey({
+      workspaceId: WORKSPACE_A,
+      ops: ['read', 'list', 'write', 'delete'],
+    });
+    const res = await SELF.fetch(
+      `${URL_BASE}/v1/workspaces/${WORKSPACE_A}`,
+      asDelete(token, { name: 'Workspace A' })
+    );
+    expect(res.status).toBe(401);
+    const row = await env.DB.prepare(`SELECT id FROM workspaces WHERE id = ?`).bind(WORKSPACE_A).first();
+    expect(row).not.toBeNull();
+  });
+
+  it('refuses an unauthenticated caller', async () => {
+    const res = await SELF.fetch(`${URL_BASE}/v1/workspaces/${WORKSPACE_A}`, {
+      method: 'DELETE',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'Workspace A' }),
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it('will not let a member delete a workspace they only belong to', async () => {
+    // The guest is a reader on WORKSPACE_A and owns no billing account.
+    const token = await mint(GUEST_UID, 'wsguest@example.com');
+    const res = await SELF.fetch(
+      `${URL_BASE}/v1/workspaces/${WORKSPACE_A}`,
+      asDelete(token, { name: 'Workspace A' })
+    );
+    expect(res.status).toBe(404);
+    const row = await env.DB.prepare(`SELECT id FROM workspaces WHERE id = ?`).bind(WORKSPACE_A).first();
+    expect(row).not.toBeNull();
+  });
+
+  it('answers for somebody else real workspace exactly as for an invented one', async () => {
+    const token = await mint(OWNER_UID, 'wsowner@example.com');
+    await twoOwned(token);
+
+    // WORKSPACE_A exists and belongs to a different account. Saying so would be
+    // an oracle for other people's workspace IDs.
+    const real = await SELF.fetch(
+      `${URL_BASE}/v1/workspaces/${WORKSPACE_A}`,
+      asDelete(token, { name: 'Workspace A' })
+    );
+    const invented = await SELF.fetch(
+      `${URL_BASE}/v1/workspaces/ws_00000000000000000000000000`,
+      asDelete(token, { name: 'Workspace A' })
+    );
+    expect(real.status).toBe(404);
+    expect(invented.status).toBe(404);
+    expect(await errorCode(real)).toBe(await errorCode(invented));
+  });
+});

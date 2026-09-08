@@ -46,6 +46,13 @@
 .wsx__check{flex:none;display:flex;color:var(--accent-ink)}
 .wsx__plus{width:var(--wsx-mark);flex:none;display:grid;place-items:center;
   color:var(--ink-3)}
+/* Same icon slot, named for what it is rather than for one of its uses — the
+   account menu's rows lead with a glyph too, and none of them is a plus. */
+.wsx__lead{width:var(--wsx-mark);flex:none;display:grid;place-items:center;
+  color:var(--ink-3)}
+/* The account menu sits in the sidebar footer, so the shared menu's downward
+   drop would land it off the bottom of the viewport. */
+.wsx__menu--up{top:auto;bottom:calc(100% + var(--s-2))}
 .wsx__sep{height:1px;background:var(--line);margin:var(--s-2) 0}
 
 /* --- file-browser bits with no design-system equivalent --- */

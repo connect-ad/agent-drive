@@ -21,6 +21,7 @@ import Webhooks from './routes/Webhooks.jsx';
 import ActivityLog from './routes/ActivityLog.jsx';
 import RequireAuth, { RequireWorkspace } from './lib/RequireAuth.jsx';
 import WorkspaceSwitcher from './components-local/WorkspaceSwitcher.jsx';
+import AccountMenu from './components-local/AccountMenu.jsx';
 import { useAuth } from './lib/auth.jsx';
 import { useWorkspace } from './lib/workspace.jsx';
 
@@ -124,7 +125,15 @@ function WorkspaceLayout() {
           }}
         />
       }
-      user={USER}
+      userSlot={
+        <AccountMenu
+          name={USER.name}
+          email={USER.email}
+          profileHref={`${wsRoot}/profile`}
+          onNavigate={to => navigate(to)}
+          onSignOut={handleSignOut}
+        />
+      }
       onNavigate={id => {
         const item = NAV.flatMap(g => g.items).find(i => i.id === id);
         if (!item) return;

@@ -112,7 +112,33 @@ function WorkspaceLayout() {
     if (open && open.id !== workspaceId) select(open.id);
   }, [open, workspaceId, select]);
 
-  const workspaceName = open?.name ?? 'Workspace';
+  /**
+   * The URL names a workspace this person cannot reach. Say so.
+   *
+   * Without this the layout rendered anyway: the breadcrumb fell back to the
+   * literal word "Workspace" and every screen inside took its workspace from
+   * the *context* rather than the URL — which is whichever one this browser
+   * last had selected. So `/w/ws_00000000000000000000000000` quietly showed you
+   * your own default workspace's files under a bogus address, and a link
+   * naming somebody else's workspace looked like it had opened it. Both are the
+   * same fault: the address bar and the data on screen disagreeing silently.
+   *
+   * One check covers "no such workspace" and "not a member of it" because
+   * `workspaces` is the membership-scoped list the API returned for this
+   * person, so a workspace they cannot reach is simply absent from it. Giving
+   * the two the same answer is also the right one: a distinguishable "that
+   * exists but is not yours" is an oracle for other people's workspace IDs, and
+   * it is exactly how `DELETE /v1/workspaces/:id` already answers.
+   *
+   * Rendered outside the shell rather than inside it — a sidebar whose every
+   * link points into a workspace that does not exist is not a 404, it is a
+   * second thing to get wrong.
+   */
+  if (!open) return <NotFound />;
+
+  // Past the guard `open` is always a workspace this person is a member of, so
+  // nothing below needs a fallback for its absence.
+  const workspaceName = open.name;
 
   /**
    * A raw-ID URL keeps working and then quietly becomes the readable one.
@@ -128,7 +154,7 @@ function WorkspaceLayout() {
    * its own ID — the 0009 backfill's fallback for a name that slugifies to
    * nothing — is already canonical and redirects nowhere.
    */
-  if (open && open.slug && open.slug !== ws) {
+  if (open.slug && open.slug !== ws) {
     return (
       <Navigate to={`${pathname.replace(wsRoot, `/w/${open.slug}`)}${search}${hash}`} replace />
     );
@@ -148,7 +174,7 @@ function WorkspaceLayout() {
           workspaces={workspaces}
           /* The resolved workspace's real ID, not the URL segment — the segment
              is a slug now, and the switcher marks the current row by ID. */
-          currentId={open?.id ?? workspaceId}
+          currentId={open.id}
           onSelect={id => {
             const target = workspaces.find(w => w.id === id);
             navigate(`/w/${target?.slug ?? id}`);

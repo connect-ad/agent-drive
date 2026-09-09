@@ -51,12 +51,24 @@ Keep this as the regression baseline. A large deviation means something was
 pulled in that shouldn't have been:
 
 ```
-111 modules transformed
+114 modules transformed
 dist/index.html                   0.39 kB │ gzip:   0.26 kB
-dist/assets/index-*.css          37.10 kB │ gzip:   6.91 kB
-dist/assets/index-*.js          496.00 kB │ gzip: 135.00 kB │ map: 1,950.00 kB
-built in ~0.9s
+dist/assets/index-*.css          38.89 kB │ gzip:   7.15 kB
+dist/assets/index-*.js          528.28 kB │ gzip: 144.39 kB │ map: 2,076.94 kB
+built in ~1.0s
 ```
+
+The build also writes **`dist/_headers`**, which Vite does not list. It is
+produced by the `agentdisk-security-headers` plugin in `vite.config.js` from
+`scripts/security-headers.js`, and it is the only thing that puts security
+headers on the deployed site — `apps/web` is an assets-only Worker, so there is
+no request-path code to set them (06 PART 16.9a). It is absent from a `vite
+build --watch`-style dev server too, because the plugin is `apply: 'build'`:
+`wrangler dev` in `apps/web` serves the headers, `npm run dev` does not.
+
+Wrangler prints `Parsed 1 valid header rule` when it picks the file up. If that
+line is missing the file did not make it into `dist/`, and the deploy will
+silently serve no headers at all — nothing else fails.
 
 Vite warns that the JS chunk is over 500 kB. Roughly 185 kB of it is the
 Firebase SDK, which is expected and not yet worth code-splitting.
@@ -188,7 +200,7 @@ re-clone on Windows would rewrite every line ending and void the verification.
 
 ## Test
 
-`apps/api` has a real suite: **272 tests across 18 files**, run with
+`apps/api` has a real suite: **519 tests across 29 files**, run with
 `npm test` from `apps/api`.
 
 It runs inside the **real Workers runtime against real Miniflare-backed D1 and
@@ -218,10 +230,11 @@ creation asserts scope per ancestor as well as up front. When a mutation
 survives, establish which of those two it is before adding a test: strengthen
 the mutation until it removes the property entirely.
 
-`apps/web` has **one test file**, `test/dialog-focus.test.jsx`, covering focus
-behaviour in `Modal` and `Drawer`. It exists because a focus bug made every
-dialog in the product unusable, and because nothing else could catch it: the
-build is clean either way and there is no web lint script.
+`apps/web` has **105 tests across six files**. The oldest,
+`test/dialog-focus.test.jsx`, covers focus behaviour in `Modal` and `Drawer`. It
+exists because a focus bug made every dialog in the product unusable, and
+because nothing else could catch it: the build is clean either way and there is
+no web lint script.
 
 It types through `user.keyboard`, which delivers to `document.activeElement`,
 rather than into a named element. **That distinction is the test.** Typing

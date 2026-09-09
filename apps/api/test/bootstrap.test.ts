@@ -309,7 +309,16 @@ describe("the full loop", () => {
   });
 
   it("does not accept the bootstrap on GET", async () => {
+    const before = await env.DB.prepare(`SELECT COUNT(*) AS n FROM workspaces`).first<{ n: number }>();
+
+    // 401, not the 404 this asserted before: an unauthenticated GET here is a
+    // caller who did not authenticate, and every other route in the API says so
+    // with a 401. The status was always incidental to what this test is for —
+    // what matters is that a GET provisions nothing, which is asserted below.
     const res = await SELF.fetch(`${URL_BASE}/v1/workspaces`);
-    expect(res.status).toBe(404);
+    expect(res.status).toBe(401);
+
+    const after = await env.DB.prepare(`SELECT COUNT(*) AS n FROM workspaces`).first<{ n: number }>();
+    expect(after?.n).toBe(before?.n);
   });
 });

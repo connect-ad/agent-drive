@@ -16,6 +16,10 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     globals: false,
-    include: ['test/**/*.test.jsx']
+    // `.js` as well as `.jsx`: the build-tooling tests (the security-header
+    // policy) render no components and would be misleading with a JSX
+    // extension. A pattern that silently collects nothing is how a test file
+    // gets written, committed, and never run.
+    include: ['test/**/*.test.{js,jsx}']
   }
 });

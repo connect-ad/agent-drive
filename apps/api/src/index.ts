@@ -259,16 +259,27 @@ export default {
         const token = extractBearerToken(request);
 
         if (token === null || isApiKeyToken(token)) {
-          if (request.method !== "POST") throw new ApiError("NOT_FOUND", "No such route.");
-          // An API key is deliberately not accepted here either: an agent key
-          // is scoped to one workspace and must not be able to mint siblings.
-          if (token !== null) throw unauthorized("api keys cannot create workspaces");
-          return await createWorkspace(request, {
-            db: env.DB,
-            kv: env.CACHE,
-            turnstileSecret: env.TURNSTILE_SECRET_KEY,
-            allowedHostnames: env.TURNSTILE_ALLOWED_HOSTNAMES,
-          });
+          // POST with no credential at all is the one genuinely public shape on
+          // this path — the sandbox above. Everything else here needs a person.
+          if (request.method === "POST" && token === null) {
+            return await createWorkspace(request, {
+              db: env.DB,
+              kv: env.CACHE,
+              turnstileSecret: env.TURNSTILE_SECRET_KEY,
+              allowedHostnames: env.TURNSTILE_ALLOWED_HOSTNAMES,
+            });
+          }
+          // An API key is deliberately not accepted here: an agent key is
+          // scoped to one workspace and must not be able to mint siblings or
+          // enumerate the account's others.
+          if (token !== null) throw unauthorized("api keys cannot act on the workspace collection");
+          // GET with no credential. A 401, not the 404 this used to return:
+          // the route exists, and "you did not authenticate" is the same
+          // condition an unusable token reports, so it gets the same status.
+          // A 404 here sent people hunting for a typo in the URL, and made
+          // this the one authenticated route in the API that disagreed with
+          // every other about what an absent credential means.
+          throw unauthorized("no bearer token in the Authorization header");
         }
 
         const firebase = firebaseConfig(env);

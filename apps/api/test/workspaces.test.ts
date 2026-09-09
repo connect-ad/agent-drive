@@ -224,9 +224,29 @@ describe('GET /v1/workspaces', () => {
     expect(body.workspaces[0]?.role).toBe('reader');
   });
 
-  it('is not a route without a credential', async () => {
-    const res = await SELF.fetch(`${URL_BASE}/v1/workspaces`);
-    expect(res.status).toBe(404);
+  it('refuses an unauthenticated caller the same way an invalid token is refused', async () => {
+    // This used to be a 404 "No such route.", which was the one route in the
+    // API that answered "you did not authenticate" with "that URL does not
+    // exist". Both shapes below are the same condition from the caller's side,
+    // so they get the same status and the same code.
+    const missing = await SELF.fetch(`${URL_BASE}/v1/workspaces`);
+    const invalid = await SELF.fetch(`${URL_BASE}/v1/workspaces`, {
+      headers: { authorization: 'Bearer not-a-real-token' },
+    });
+
+    expect(missing.status).toBe(401);
+    expect(invalid.status).toBe(401);
+    expect(await errorCode(missing)).toBe(await errorCode(invalid));
+  });
+
+  it('refuses an agent key rather than pretending the route is absent', async () => {
+    // A key is bound to one workspace; enumerating the account's others is
+    // outside what it is for. Refused as 401, not 404, for the same reason.
+    const { token } = await seedApiKey({ workspaceId: WORKSPACE_A, ops: ['list', 'read'] });
+    const res = await SELF.fetch(`${URL_BASE}/v1/workspaces`, {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(res.status).toBe(401);
   });
 });
 

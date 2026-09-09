@@ -13,9 +13,9 @@ task.
 | Path | Holds | Rule |
 |---|---|---|
 | `CLAUDE.md` | This route and the catalog | Source of truth for *where things are*. Not a duplicate of the specs. |
-| `docs/design/` | The specification, `NN-<slug>.md` | 19 documents, PART 1–30. The product's design authority — but see the precedence rule below. |
+| `docs/design/` | The specification, `NN-<slug>.md` | 20 documents, PART 1–30. The product's design authority — but see the precedence rule below. |
 | `design-system/` | Upstream mirror of the Claude Design project | **Read-only.** Byte-identical to the remote (96/96). Changes go into Claude Design, then re-import — never edit here. |
-| `apps/api/` | The Cloudflare Worker: REST + MCP, one deployable | Both surfaces are built and share one authorization chain. MCP tools call the REST handlers rather than reimplementing them, so the two cannot drift. |
+| `apps/api/` | The Cloudflare Worker: REST + MCP, one deployable | Both surfaces are built and share one authorization chain. MCP tools call the REST handlers rather than reimplementing them, so the two cannot drift — a claim live testing disputes for `pathPrefix`; unresolved, see [029](backlog/029-mcp-path-scope-contradiction.md). |
 | `infra/terraform/` | All infrastructure as code | One root config, one module, **one workspace per environment** (`dev`, `prod`). No `environments/` directories — see the workspace note below. |
 | `.github/workflows/` | CI and deployment pipelines | **Three areas, split by what they own: `infra`, `backend`, `frontend`.** Each is one reusable engine plus thin per-environment callers, so prod can never drift from dev. Path filters mean an `apps/web` push moves nothing else. `frontend.yml` is called once per app (dashboard, console). `ci.yml` gates PRs and covers all three apps. `deploy-all-dev.yml` is the ordered manual full deploy. |
 | `apps/admin/` | The internal staff console, at `admin-dev.agentdisk.io` | Its own origin on purpose: 14 PART 27.2 scopes the staff session cookie to it, so a staff and a customer credential cannot reach each other in a browser. Deliberately does not import `design-system/` — looking different from the customer dashboard is how a support engineer knows which one they are in. |
@@ -96,10 +96,28 @@ were not touched. See [002](backlog/002-reconcile-brand-drift.md).
 - **A Worker that owns static assets needs `assets` and `keep_assets` in
   `ignore_changes`,** not just the code attributes. Without them a routine plan
   proposes stripping the deployed site's own files.
+- **The dashboard's security headers live in `dist/_headers`, and nothing else
+  fails if they stop being emitted.** `apps/web` is assets-only — no `main`, so
+  there is no request-path code to set them — and the file is written at build
+  time by a Vite plugin. If that plugin stops running, the build succeeds, the
+  deploy succeeds, the tests pass, and every header silently disappears; the
+  smoke test's header section is the only thing that turns that into a red
+  pipeline. Generate the file from `scripts/security-headers.js` rather than
+  writing headers anywhere else, and see 06 PART 16.9a for why COOP is absent
+  and `style-src` still allows `'unsafe-inline'`.
 - **Every authentication failure returns one identical body.** Unknown, revoked,
   expired, forged and disabled-agent credentials must stay indistinguishable to
   the caller — a distinguishable failure is an oracle telling an attacker which
   of their guesses is a real key. The reason goes to the log, never the client.
+  **An absent credential is one of those failures, not a missing route.**
+  `withAuth` gets this right for every route that goes through it; the trap is
+  the handful that do not. `/v1/workspaces` is hand-routed because one path
+  serves two callers — the anonymous Turnstile sandbox on POST, and a signed-in
+  person on GET — and its hand-written branch answered "no token" with 404 "No
+  such route.", which is the one thing that rules out the actual cause. Only
+  `POST` with no credential at all is public there. `test/auth.test.ts` sweeps
+  41 authenticated routes for this; a route added outside `withAuth` belongs in
+  that table.
 - **Scope prefixes match whole segments.** `/agents/bot` must not authorize
   `/agents/bot-evil/secrets.txt`; a plain `startsWith` says it does.
 - **R2 bindings cannot presign.** `R2Bucket` is get/put/head/list. Presigned
@@ -172,6 +190,14 @@ were not touched. See [002](backlog/002-reconcile-brand-drift.md).
   ID stays on screen everywhere it is genuinely needed — `Dashboard.jsx`'s ID chip
   read the URL param, which was the ID until slugs existed and would silently have
   started showing the slug; that chip is the value people paste into an API call.
+  **And a `/w/{segment}` that resolves to nothing renders the 404.** It used to
+  render the shell anyway: the breadcrumb fell back to the literal word
+  "Workspace" and every screen inside took its workspace from the *context*
+  rather than the URL, so a bogus ID quietly showed you your own default
+  workspace's files under an address that named someone else's. One check covers
+  both "no such workspace" and "not a member", because `workspaces` is the
+  membership-scoped list the API returned — and answering the two identically is
+  what stops the URL confirming that another account's workspace exists.
 - **Migration 0009 deliberately slugifies less than `lib/slug.ts` does.** It
   backfills every row to its own ID first — guaranteed unique, guaranteed
   URL-safe, cannot fail on data it has never seen — then upgrades only names made
@@ -224,7 +250,8 @@ were not touched. See [002](backlog/002-reconcile-brand-drift.md).
 | 15 | [Frontend/admin/billing prompt](docs/design/15-frontend-admin-billing-implementation-prompt.md) | Standalone build prompt for doc 14 |
 | 16 | [Firebase auth & launch prompt](docs/design/16-firebase-auth-and-final-launch-prompt.md) | PART 30 — the auth model in force. Read before touching sign-in |
 | 17 | [Dev environment test findings](docs/design/17-dev-environment-live-test-findings.md) | 7 Sept 2026 live pass against `app-dev` |
-| 18 | [Full UI audit & fix prompt](docs/design/18-full-ui-audit-and-fix-prompt.md) | 8 Sept 2026 audit of every menu and tab. **Parts 1–4 only** — the later fix rounds were briefed in conversation, and what they established lives in docs 03/06 and the backlog, not here |
+| 18 | [Full UI audit & fix prompt](docs/design/18-full-ui-audit-and-fix-prompt.md) | 8–9 Sept 2026 audit, now **Parts 1–10**. Parts 1–6 are closed rounds whose outcomes live in docs 03/06 and the backlog; Parts 7–10 are later live passes and **still carry unresolved findings** — read §9.3–9.5 before assuming a screen works |
+| 19 | [MCP public distribution guide](docs/design/19-mcp-public-distribution-guide.md) | How to publish the MCP server for public install: per-client snippets, the official registry, marketplaces. Names the doc-18 §9.4 path-scope question as a launch blocker — see [029](backlog/029-mcp-path-scope-contradiction.md) |
 
 ### Design system — [design-system/](design-system/)
 
@@ -261,7 +288,7 @@ provenance), `ApiKeyDisplay` (show-once), `PermissionSelector` (least privilege)
 | 007 | [Browser-verify the screens](backlog/007-browser-verify-screens.md) | Open — 4 of 31 rendered, no state variants |
 | 008 | [Backend: D1, R2, REST, MCP](backlog/008-backend.md) | Done — REST, MCP and Firebase auth all shipped |
 | 009 | [Wire screens to the API](backlog/009-wire-screens-to-api.md) | Reopened — fixture data remains; see [023](backlog/023-non-functional-ui-controls.md). Scope-name conflict decided: the API's bare names win |
-| 010 | [Test suite](backlog/010-test-suite.md) | Open — 474 API tests, 76 web tests, route components covered and mutation-checked; e2e still uncovered |
+| 010 | [Test suite](backlog/010-test-suite.md) | Open — 519 API tests, 105 web tests, route components covered and mutation-checked; e2e still uncovered |
 | 011 | [Rename `Worlflow.md`](backlog/011-rename-workflow-file.md) | Open — trivial |
 | 012 | [Put the project under git](backlog/012-initialise-git.md) | Done |
 | 013 | [Deploy the dashboard](backlog/013-deploy-dashboard.md) | Done — `app-dev.agentdisk.io` |
@@ -279,6 +306,8 @@ provenance), `ApiKeyDisplay` (show-once), `PermissionSelector` (least privilege)
 | 025 | [Authorization hardening](backlog/025-authorization-hardening.md) | Open — agent keys can read billing; five smaller items |
 | 026 | [Upstream the account menu](backlog/026-upstream-account-menu.md) | Open — `AppShell.userSlot`; third divergence in the vendored shell |
 | 027 | [Files page first paint](backlog/027-files-page-first-paint.md) | Open — three serial round trips before the first file query; measured, not slow |
+| 028 | [Staff console security headers](backlog/028-admin-console-security-headers.md) | Open — `apps/admin` has the gap `apps/web` just closed |
+| 029 | [MCP path-scope contradiction](backlog/029-mcp-path-scope-contradiction.md) | Open — live testing and the code disagree; unresolved, blocks the public MCP launch |
 
 ---
 
@@ -294,8 +323,8 @@ live deployment rather than inferred from the code — see
 person can follow.
 
 ```
-apps/api    474 tests across 29 files · typecheck clean · lint clean
-apps/web    76 tests · 114 modules · build clean
+apps/api    519 tests across 29 files · typecheck clean · lint clean
+apps/web    105 tests · 114 modules · build clean
 Worker      226 KiB gzipped, against Cloudflare's 1 MB limit
 ```
 

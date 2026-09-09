@@ -18,6 +18,8 @@
  * usage: smoke-test.mjs <base-url> <worker-name>
  * env:   CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID (for the workers.dev check)
  */
+import { REQUIRED_HEADERS } from "./security-headers.js";
+
 const baseUrl = process.argv[2]?.replace(/\/$/, "");
 const workerName = process.argv[3];
 
@@ -201,6 +203,52 @@ if (!apiToken || !accountId) {
   }
 }
 
+// --- 5. Security headers on the document response ------------------------
+// Checked against the deployed response, not the generated file, because the
+// two can disagree in a way nothing else notices: `_headers` is emitted by a
+// Vite plugin into `dist/`, and if that plugin ever stops running the build
+// still succeeds, the deploy still succeeds, and every header silently
+// vanishes. This is the assertion that turns that into a red pipeline.
+console.log("\n[5] Security headers");
+{
+  const headerResponse = await fetch(`${baseUrl}/`, { redirect: "manual" });
+  for (const name of REQUIRED_HEADERS) {
+    const value = headerResponse.headers.get(name);
+    if (!value) {
+      fail(`GET / is missing ${name}`);
+    } else {
+      pass(`${name}: ${value.length > 60 ? `${value.slice(0, 60)}…` : value}`);
+    }
+  }
+
+  // The policy is only worth having if script-src is tight. A wildcard or an
+  // 'unsafe-inline' here would pass the "header is present" check above while
+  // granting exactly what CSP exists to withhold.
+  const csp = headerResponse.headers.get("Content-Security-Policy") ?? "";
+  const scriptSrc = csp
+    .split(";")
+    .map((part) => part.trim())
+    .find((part) => part.startsWith("script-src "));
+
+  if (!scriptSrc) {
+    fail("CSP has no script-src directive");
+  } else if (scriptSrc.includes("'unsafe-inline'") || scriptSrc.includes("'unsafe-eval'") || scriptSrc.includes("*")) {
+    fail(`CSP script-src is not restrictive: ${scriptSrc}`);
+  } else {
+    pass(`CSP script-src is restrictive: ${scriptSrc}`);
+  }
+
+  // A deep link is served by the SPA fallback rather than as a file on disk,
+  // so it is the path most likely to miss a header rule.
+  const deepResponse = await fetch(`${baseUrl}/w/acme-research/files`, { redirect: "manual" });
+  const missingOnDeepLink = REQUIRED_HEADERS.filter((name) => !deepResponse.headers.get(name));
+  if (missingOnDeepLink.length > 0) {
+    fail(`SPA fallback response is missing: ${missingOnDeepLink.join(", ")}`);
+  } else {
+    pass("SPA fallback carries all five headers");
+  }
+}
+
 // --- Result ---------------------------------------------------------------
 console.log("");
 if (failures.length > 0) {
@@ -209,4 +257,4 @@ if (failures.length > 0) {
   process.exit(1);
 }
 
-console.log(`Smoke test passed: ${baseUrl} is serving the dashboard, deep links fall back to the SPA, and no bypass hostname is open.`);
+console.log(`Smoke test passed: ${baseUrl} is serving the dashboard, deep links fall back to the SPA, no bypass hostname is open, and every response carries its security headers.`);

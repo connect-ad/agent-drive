@@ -29,6 +29,9 @@ if (!baseUrl || !workerName) {
 }
 
 const ATTEMPTS = 6;
+/** Header rules propagate after asset content; see fetchUntilHeaders. ~60s total. */
+const HEADER_ATTEMPTS = 12;
+const HEADER_RETRY_MS = 5000;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const failures = [];
@@ -43,8 +46,11 @@ function pass(message) {
 /**
  * A fresh deploy plus custom-domain routing can take a few seconds to
  * propagate. Retry only the FIRST fetch — once the origin answers at all,
- * later assertions are about content, not propagation, and retrying those
- * would just mask a real bug behind a slower red build.
+ * later assertions are about *content*, which arrives with the response, and
+ * retrying those would just mask a real bug behind a slower red build.
+ *
+ * Header rules are the one exception, and `fetchUntilHeaders` below handles
+ * them separately. See the note there before widening this retry.
  */
 async function fetchWithRetry(url, label) {
   let lastFailure = "no attempt made";
@@ -63,6 +69,38 @@ async function fetchWithRetry(url, label) {
   }
   console.error(`FATAL: ${label} never responded after ${ATTEMPTS} attempts: ${lastFailure}`);
   process.exit(1);
+}
+
+/**
+ * Fetch until the response carries the security headers, or give up.
+ *
+ * These need their own retry because a deployment's asset *content* and its
+ * `_headers` rules go live independently, and the content wins the race. This
+ * is measured, not assumed: on the deploy that first shipped these headers,
+ * section 1 confirmed the new hashed bundle was already being served at
+ * 00:13:36.61Z, and section 5 found no headers at all 0.65s later — while the
+ * same URL carried all five, unchanged and never redeployed, when checked
+ * afterwards.
+ *
+ * So "the origin answered" does not imply "the header config is live", and a
+ * single un-retried request here fails a deploy that is in fact correct. The
+ * assertion is unchanged — if they never arrive within the window, that is
+ * still a hard failure.
+ */
+async function fetchUntilHeaders(url, label) {
+  let response = await fetch(url, { redirect: "manual" });
+  for (let attempt = 1; attempt <= HEADER_ATTEMPTS; attempt++) {
+    const missing = REQUIRED_HEADERS.filter((name) => !response.headers.get(name));
+    if (missing.length === 0) return response;
+    if (attempt === HEADER_ATTEMPTS) break;
+    console.log(
+      `  ${label}: ${missing.length} of ${REQUIRED_HEADERS.length} header(s) not live yet ` +
+        `(attempt ${attempt}/${HEADER_ATTEMPTS}); retrying in ${HEADER_RETRY_MS / 1000}s`
+    );
+    await sleep(HEADER_RETRY_MS);
+    response = await fetch(url, { redirect: "manual" });
+  }
+  return response;
 }
 
 console.log(`Smoke-testing ${baseUrl} (worker: ${workerName})`);
@@ -211,7 +249,7 @@ if (!apiToken || !accountId) {
 // vanishes. This is the assertion that turns that into a red pipeline.
 console.log("\n[5] Security headers");
 {
-  const headerResponse = await fetch(`${baseUrl}/`, { redirect: "manual" });
+  const headerResponse = await fetchUntilHeaders(`${baseUrl}/`, "headers");
   for (const name of REQUIRED_HEADERS) {
     const value = headerResponse.headers.get(name);
     if (!value) {
@@ -239,8 +277,13 @@ console.log("\n[5] Security headers");
   }
 
   // A deep link is served by the SPA fallback rather than as a file on disk,
-  // so it is the path most likely to miss a header rule.
-  const deepResponse = await fetch(`${baseUrl}/w/acme-research/files`, { redirect: "manual" });
+  // so it is the path most likely to miss a header rule. Retried for the same
+  // propagation reason, and cheaply: once the root above is live this returns
+  // on its first attempt.
+  const deepResponse = await fetchUntilHeaders(
+    `${baseUrl}/w/acme-research/files`,
+    "headers (deep link)"
+  );
   const missingOnDeepLink = REQUIRED_HEADERS.filter((name) => !deepResponse.headers.get(name));
   if (missingOnDeepLink.length > 0) {
     fail(`SPA fallback response is missing: ${missingOnDeepLink.join(", ")}`);

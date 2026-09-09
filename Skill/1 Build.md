@@ -386,6 +386,16 @@ gh run view <id> --log-failed | sed 's/\[[0-9;]*m//g'
 The `sed` is not optional in practice — the logs are full of ANSI escapes and
 Terraform's box-drawing output is unreadable without stripping them.
 
+**A red "[5] Security headers" is not necessarily a broken deploy.** Check the
+live URL by hand before believing it — a deployment's asset content and its
+`_headers` rules go live independently, and content wins the race. The first
+deploy carrying these headers failed exactly this way: section 1 confirmed the
+new hashed bundle was already being served, section 5 found no headers 0.65s
+later, and the same URL carried all five, never redeployed, when checked
+afterwards. The smoke test now polls for about a minute before failing, so a
+red section 5 today means either a genuinely missing `dist/_headers` or a
+propagation delay longer than that window.
+
 ### A green plan should say "No changes"
 
 `0 to add, 1 to change` on an unmodified dev tree is a **perpetual diff**, not a

@@ -453,7 +453,7 @@ code.inline{font-family:var(--font-mono);font-size:0.9em;background:var(--surfac
 /* ==========================================================================
    Overlay: modal / drawer / toast / menu
    ========================================================================== */
-.scrim{position:fixed;inset:0;background:oklch(0.19 0.012 262/0.34);display:grid;place-items:center;padding:var(--s-7);z-index:60;animation:ad-fade var(--d-2) var(--ease)}
+.scrim{position:fixed;inset:0;background:var(--scrim);display:grid;place-items:center;padding:var(--s-7);z-index:60;animation:ad-fade var(--d-2) var(--ease)}
 @keyframes ad-fade{from{opacity:0}to{opacity:1}}
 .modal{background:var(--surface);border:1px solid var(--line-2);border-radius:var(--r-4);box-shadow:var(--sh-4);width:100%;max-width:440px;max-height:100%;display:flex;flex-direction:column;animation:ad-rise var(--d-3) var(--ease-out)}
 @keyframes ad-rise{from{opacity:0;transform:translateY(8px) scale(.99)}to{opacity:1;transform:none}}
@@ -517,34 +517,60 @@ code.inline{font-family:var(--font-mono);font-size:0.9em;background:var(--surfac
 /* ==========================================================================
    App shell
    ========================================================================== */
-.shell{display:grid;grid-template-columns:var(--nav-w) 1fr;min-height:100vh;background:var(--paper)}
-.shell__nav{display:flex;flex-direction:column;background:var(--surface);border-right:1px solid var(--line);position:sticky;top:0;height:100vh;overflow:hidden}
-.shell__brand{display:flex;align-items:center;gap:var(--s-4);height:var(--topbar-h);padding:0 var(--s-6);border-bottom:1px solid var(--line);flex:none}
-.shell__logo{width:20px;height:20px;border-radius:var(--r-1);background:var(--accent);display:grid;place-items:center;color:var(--on-accent);font-family:var(--font-mono);font-size:var(--t-11);font-weight:var(--w-semi);flex:none}
-.shell__wordmark{font-size:var(--t-14);font-weight:var(--w-semi);letter-spacing:var(--tr-snug);color:var(--ink)}
-.shell__ws{padding:var(--s-5) var(--s-5) var(--s-4);flex:none}
+.shell{display:flex;flex-direction:column;min-height:100vh;background:var(--paper)}
+
+/* --- Layer 0: top bar --- */
+.shell__top{display:flex;align-items:center;gap:var(--s-4);min-height:var(--topbar-h);padding:var(--s-3) var(--s-7);border-bottom:1px solid var(--line);background:var(--surface);position:sticky;top:0;z-index:40;flex:none}
+.shell__brand{display:flex;align-items:center;gap:var(--s-4);flex:none}
+.shell__logo{width:28px;height:28px;border-radius:var(--r-2);background:var(--accent);display:grid;place-items:center;color:var(--on-accent);font-family:var(--font-mono);font-size:var(--t-13);font-weight:var(--w-semi);flex:none}
+.shell__wordmark{font-family:var(--font-display);font-size:var(--t-16);font-weight:var(--w-semi);letter-spacing:var(--tr-snug);color:var(--ink)}
+.shell__rule{width:1px;height:22px;background:var(--line);flex:none;margin:0 var(--s-2)}
+.shell__ws{min-width:0;flex:0 1 auto}
+.shell__topactions{margin-left:auto;display:flex;align-items:center;gap:var(--s-3);flex:none}
+
+/* The workspace switcher and account menu both sit in the top bar now, so
+   their panels drop downward. .wsx__menu--up is the sidebar-era placement and
+   is no longer used by either. */
+.shell__wsbtn--bar{width:auto;max-width:260px;padding:var(--s-2) var(--s-4);border-radius:var(--r-2)}
+
+/* --- Layer 1: workspace info strip --- */
+.shell__strip{background:var(--surface-2);border-bottom:1px solid var(--line);flex:none}
+.shell__stripinner{display:flex;align-items:center;gap:var(--s-5);padding:var(--s-4) var(--s-7);flex-wrap:wrap;min-width:0}
+.shell__stripitem{display:flex;align-items:center;gap:var(--s-3);min-width:0}
+.shell__striplabel{font-family:var(--font-mono);font-size:var(--t-10);letter-spacing:var(--tr-caps);color:var(--ink-3);flex:none}
+.shell__stripsep{width:1px;height:16px;background:var(--line);flex:none}
+
+/* --- Layer 3: tab bar --- */
+.shell__tabs{background:var(--surface);border-bottom:1px solid var(--line);position:sticky;top:var(--topbar-h);z-index:30;flex:none}
+.shell__tablist{display:flex;gap:var(--s-1);padding:0 var(--s-7);overflow-x:auto;scrollbar-width:none}
+.shell__tablist::-webkit-scrollbar{display:none}
+.shell__tab{display:flex;align-items:center;gap:var(--s-3);height:42px;padding:0 var(--s-5);font-size:var(--t-13);font-weight:var(--w-med);color:var(--ink-2);text-decoration:none;white-space:nowrap;flex:none;box-shadow:inset 0 -2px 0 0 transparent;transition:color var(--d-1) var(--ease),box-shadow var(--d-1) var(--ease)}
+.shell__tab:hover{color:var(--ink);text-decoration:none}
+.shell__tab[aria-current="page"]{color:var(--accent-ink);font-weight:var(--w-semi);box-shadow:inset 0 -2px 0 0 var(--accent)}
+.shell__tabico{flex:none;color:var(--ink-4);display:flex}
+.shell__tab:hover .shell__tabico{color:var(--ink-3)}
+.shell__tab[aria-current="page"] .shell__tabico{color:var(--accent)}
+.shell__badge{font-family:var(--font-mono);font-size:var(--t-11);color:var(--ink-4)}
+
+/* --- controls the two local menus still borrow ---
+   WorkspaceSwitcher and AccountMenu are styled entirely with these classes
+   (app.css says so, deliberately, so the two read as one family). They moved
+   from the sidebar to the top bar; the classes had to come with them. */
 .shell__wsbtn{display:flex;align-items:center;gap:var(--s-4);width:100%;padding:var(--s-4);background:var(--surface-2);border:1px solid var(--line);border-radius:var(--r-2);cursor:pointer;text-align:left;transition:background var(--d-1) var(--ease),border-color var(--d-1) var(--ease)}
 .shell__wsbtn:hover{background:var(--surface-3);border-color:var(--line-2)}
-.shell__wsmark{width:22px;height:22px;flex:none;border-radius:var(--r-1);background:var(--ink);color:var(--paper);display:grid;place-items:center;font-size:var(--t-11);font-weight:var(--w-semi)}
-.shell__wsname{font-size:var(--t-13);font-weight:var(--w-med);color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.shell__wsmark{width:20px;height:20px;flex:none;border-radius:var(--r-1);background:var(--accent-soft);border:1px solid var(--accent-line);color:var(--accent);display:grid;place-items:center;font-size:var(--t-10);font-weight:var(--w-bold)}
+.shell__wsname{font-size:var(--t-13);font-weight:var(--w-semi);color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .shell__wsmeta{font-size:var(--t-11);color:var(--ink-3)}
-.shell__scroll{flex:1;overflow-y:auto;overflow-x:hidden;padding:0 var(--s-5) var(--s-6);display:flex;flex-direction:column;gap:var(--s-7)}
-.shell__group{display:flex;flex-direction:column;gap:var(--s-1)}
-.shell__grouplabel{font-size:var(--t-11);font-weight:var(--w-semi);letter-spacing:var(--tr-caps);text-transform:uppercase;color:var(--ink-4);padding:var(--s-3) var(--s-4)}
-.shell__link{display:flex;align-items:center;gap:var(--s-4);padding:var(--s-3) var(--s-4);border-radius:var(--r-2);font-size:var(--t-13);color:var(--ink-2);text-decoration:none;transition:background var(--d-1) var(--ease),color var(--d-1) var(--ease);position:relative}
-.shell__link:hover{background:var(--surface-2);color:var(--ink);text-decoration:none}
-.shell__link[aria-current="page"]{background:var(--accent-soft);color:var(--accent-ink);font-weight:var(--w-med)}
-.shell__link[aria-current="page"] .shell__linkico{color:var(--accent)}
-.shell__linkico{flex:none;color:var(--ink-4);display:flex}
-.shell__link:hover .shell__linkico{color:var(--ink-3)}
-.shell__badge{margin-left:auto;font-family:var(--font-mono);font-size:var(--t-11);color:var(--ink-4)}
-.shell__foot{flex:none;border-top:1px solid var(--line);padding:var(--s-4) var(--s-5)}
 .shell__user{display:flex;align-items:center;gap:var(--s-4);width:100%;padding:var(--s-3);border:0;border-radius:var(--r-2);background:transparent;cursor:pointer;text-align:left;transition:background var(--d-1) var(--ease)}
 .shell__user:hover{background:var(--surface-2)}
-.shell__main{display:flex;flex-direction:column;min-width:0}
-.shell__top{display:flex;align-items:center;gap:var(--s-5);height:var(--topbar-h);padding:0 var(--s-8);border-bottom:1px solid var(--line);background:oklch(1 0 0/0.82);backdrop-filter:blur(8px);position:sticky;top:0;z-index:20;flex:none}
-.shell__topactions{margin-left:auto;display:flex;align-items:center;gap:var(--s-4)}
-.shell__page{flex:1;padding:var(--s-8);min-width:0;display:flex;flex-direction:column;gap:var(--s-7)}
+
+/* In the bar both are inline controls on one line, at the design's 34px. */
+.shell__wsbtn--bar{width:auto;max-width:260px;height:34px;padding:0 var(--s-4);border-radius:var(--r-2)}
+/* The role line is the sidebar's second row; a bar control is one line, and
+   the design shows the plan badge in that space rather than the role. */
+.shell__wsbtn--bar .shell__wsmeta{display:none}
+
+.shell__page{flex:1;padding:var(--s-8) var(--s-7);min-width:0;display:flex;flex-direction:column;gap:var(--s-7)}
 .shell__page--flush{padding:0}
 .shell__burger{display:none}
 .avatar{width:24px;height:24px;border-radius:var(--r-full);background:var(--accent-soft-2);color:var(--accent-ink);display:grid;place-items:center;font-size:var(--t-11);font-weight:var(--w-semi);flex:none;border:1px solid var(--accent-line)}
@@ -563,12 +589,14 @@ code.inline{font-family:var(--font-mono);font-size:0.9em;background:var(--surfac
 .spacer{flex:1}
 
 @media (max-width:900px){
-  .shell{grid-template-columns:1fr}
-  .shell__nav{position:fixed;inset:0 auto 0 0;width:280px;z-index:70;transform:translateX(-100%);transition:transform var(--d-3) var(--ease-out);box-shadow:var(--sh-4)}
-  .shell.is-open .shell__nav{transform:none}
-  .shell__burger{display:inline-flex}
+  /* No drawer to open: the tab bar scrolls horizontally instead, which is how
+     the design handles narrow widths. */
   .shell__page{padding:var(--s-6) var(--s-5)}
-  .shell__top{padding:0 var(--s-5)}
+  .shell__top{padding:var(--s-3) var(--s-5)}
+  .shell__tablist{padding:0 var(--s-5)}
+  .shell__stripinner{padding:var(--s-4) var(--s-5)}
+  .shell__wordmark{display:none}
+  .shell__wsbtn--bar{max-width:180px}
   .btn--md,.btn--lg{min-height:38px}
   .icon-btn{width:34px;height:34px}
 }

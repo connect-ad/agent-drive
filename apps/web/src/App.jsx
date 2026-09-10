@@ -1,6 +1,6 @@
 import React from 'react';
 import { Routes, Route, Navigate, Outlet, useNavigate, useParams, useLocation, Link } from 'react-router-dom';
-import { AppShell, Breadcrumb, Badge, Button, Icon } from './components/index.js';
+import { AppShell, Badge, Button, Icon } from './components/index.js';
 
 import Dashboard from './routes/Dashboard.jsx';
 import FileBrowser from './routes/FileBrowser.jsx';
@@ -22,6 +22,8 @@ import ActivityLog from './routes/ActivityLog.jsx';
 import RequireAuth, { RequireWorkspace } from './lib/RequireAuth.jsx';
 import WorkspaceSwitcher from './components-local/WorkspaceSwitcher.jsx';
 import AccountMenu from './components-local/AccountMenu.jsx';
+import ThemeToggle from './components-local/ThemeToggle.jsx';
+import WorkspaceIdChip from './components-local/WorkspaceIdChip.jsx';
 import { useAuth } from './lib/auth.jsx';
 import { useWorkspace } from './lib/workspace.jsx';
 
@@ -160,6 +162,24 @@ function WorkspaceLayout() {
     );
   }
 
+  /**
+   * Every tab gets a real href.
+   *
+   * AppShell has always supported `it.href` and fell back to "#" when none was
+   * given — and none ever was, so all nine sidebar entries rendered as
+   * <a href="#">. Middle-click and ctrl-click opened nothing, "Copy link
+   * address" produced "#", and a screen reader announced nine links to one
+   * destination. onNavigate still handles the plain click, so routing stays
+   * client-side and the navigation behaviour is unchanged.
+   */
+  const navWithHrefs = NAV.map(group => ({
+    ...group,
+    items: group.items.map(it => ({
+      ...it,
+      href: it.external ? it.href : wsRoot + it.path,
+    })),
+  }));
+
   const USER = {
     name: user?.displayName ?? user?.email ?? 'Signed in',
     email: user?.email ?? ''
@@ -167,10 +187,11 @@ function WorkspaceLayout() {
 
   return (
     <AppShell
-      nav={NAV}
+      nav={navWithHrefs}
       active={active}
       workspaceSlot={
         <WorkspaceSwitcher
+          compact
           workspaces={workspaces}
           /* The resolved workspace's real ID, not the URL segment — the segment
              is a slug now, and the switcher marks the current row by ID. */
@@ -192,6 +213,7 @@ function WorkspaceLayout() {
           profileHref={`${wsRoot}/profile`}
           onNavigate={to => navigate(to)}
           onSignOut={handleSignOut}
+          align="down"
         />
       }
       onNavigate={id => {
@@ -200,27 +222,25 @@ function WorkspaceLayout() {
         if (item.external) { window.location.assign(item.href); return; }
         navigate(wsRoot + item.path);
       }}
-      topbar={
-        <Breadcrumb
-          items={[
-            { label: workspaceName, href: wsRoot },
-            { label: current ? current.label : 'Dashboard' }
-          ]}
-        />
+      infoStrip={
+        <div className="shell__stripinner">
+          <span className="shell__stripitem">
+            <span className="shell__striplabel">WORKSPACE</span>
+            <span className="ad-truncate">{workspaceName}</span>
+          </span>
+          <span className="shell__stripsep" aria-hidden="true" />
+          <span className="shell__stripitem">
+            <span className="shell__striplabel">ID</span>
+            {/* The ws_... ID, never the slug — this is the value people paste
+                into an API call. */}
+            <WorkspaceIdChip workspaceId={open.id} />
+          </span>
+        </div>
       }
       topbarActions={
         <>
-          {/*
-            No workspace controls here. Switching and creating both used to live
-            in this row, beside a third copy of the workspace's name in the
-            sidebar - and the switcher hid itself until you already had two, so
-            the only route to a second workspace sat next to a control you could
-            not see. All three are now the one switcher in the sidebar.
-          */}
-          <Button size="sm" variant="secondary" as={Link} to="/docs" icon={<Icon name="book" size={13} />}>
-            Docs
-          </Button>
-          <Button size="sm" variant="ghost" onClick={handleSignOut}>Sign out</Button>
+          <ThemeToggle />
+          <Button size="sm" variant="ghost" as={Link} to="/docs">Docs</Button>
         </>
       }
     >

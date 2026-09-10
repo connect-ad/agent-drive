@@ -28,7 +28,7 @@ import NewWorkspace from './NewWorkspace.jsx';
  * of UI with one job. `App.jsx` reads the context and decides what selecting
  * and creating actually mean.
  */
-export default function WorkspaceSwitcher({ workspaces = [], currentId, onSelect, onCreate }) {
+export default function WorkspaceSwitcher({ workspaces = [], currentId, onSelect, onCreate, compact = false }) {
   const [open, setOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const root = useRef(null);
@@ -63,7 +63,7 @@ export default function WorkspaceSwitcher({ workspaces = [], currentId, onSelect
     <div className="wsx" ref={root}>
       <button
         type="button"
-        className="shell__wsbtn"
+        className={compact ? "shell__wsbtn shell__wsbtn--bar" : "shell__wsbtn"}
         ref={trigger}
         aria-haspopup="menu"
         aria-expanded={open}

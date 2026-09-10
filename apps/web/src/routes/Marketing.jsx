@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Button, Icon, Badge, CodeBlock, Tabs, Switch, Panel } from '../components/index.js';
+import { useAuth } from '../lib/auth.jsx';
 
 /**
  * 8.1 Landing · 8.2 Pricing — MVP-0.
@@ -11,8 +12,8 @@ import { Button, Icon, Badge, CodeBlock, Tabs, Switch, Panel } from '../componen
 
 const SNIPPETS = {
   curl: `# Give an agent a scoped key, then let it write
-curl -X POST https://api.agentdrive.ai/v1/files \\
-  -H "Authorization: Bearer $AGENTDRIVE_KEY" \\
+curl -X POST https://api.agentdisk.io/v1/files \\
+  -H "Authorization: Bearer $AGENTDISK_KEY" \\
   -d '{"path":"memory/2026-03-05.md","size":812}'
 
 # => 201 Created
@@ -20,22 +21,22 @@ curl -X POST https://api.agentdrive.ai/v1/files \\
 #   "status": "processing", "agent": "research-assistant" }`,
   mcp: `{
   "mcpServers": {
-    "agentdrive": {
-      "url": "https://mcp.agentdrive.ai/v1",
+    "agentdisk": {
+      "url": "https://mcp.agentdisk.io/v1",
       "headers": { "Authorization": "Bearer ad_live_..." }
     }
   }
 }`,
-  python: `from agentdrive import Client
+  python: `from agentdisk import Client
 
-drive = Client(api_key=os.environ["AGENTDRIVE_KEY"])
+drive = Client(api_key=os.environ["AGENTDISK_KEY"])
 drive.files.create("memory/2026-03-05.md", body=notes)
 
 for f in drive.files.search("competitor pricing"):
     print(f.path, f.size)`,
-  ts: `import { AgentDrive } from "@agentdrive/sdk";
+  ts: `import { AgentDisk } from "@agentdisk/sdk";
 
-const drive = new AgentDrive({ apiKey: process.env.AGENTDRIVE_KEY });
+const drive = new AgentDisk({ apiKey: process.env.AGENTDISK_KEY });
 await drive.files.create("memory/2026-03-05.md", { body: notes });
 
 const hits = await drive.files.search("competitor pricing");`
@@ -62,28 +63,35 @@ const USE_CASES = [
   { title: 'Webhook-driven workflows', body: 'Fire downstream jobs the moment an object lands or finishes processing.', replaces: 'Replaces: polling on a timer' }
 ];
 
-function Nav() {
+export function Nav() {
+  const { user } = useAuth();
   return (
     <nav className="mk__nav">
       <span className="row" style={{ gap: 'var(--s-4)' }}>
         <span className="auth__logo" aria-hidden="true">A</span>
-        <span className="auth__wordmark">AgentDrive</span>
+        <span className="auth__wordmark">AgentDisk</span>
       </span>
       <span className="mk__navlinks">
         <Link to="/docs">Docs</Link>
         <Link to="/pricing">Pricing</Link>
-        <Link to="/login">Sign in</Link>
-        <Button size="sm" as={Link} to="/signup">Get started</Button>
+        {user ? (
+          <Button size="sm" as={Link} to="/app">Open dashboard</Button>
+        ) : (
+          <>
+            <Link to="/login">Sign in</Link>
+            <Button size="sm" as={Link} to="/signup">Get started</Button>
+          </>
+        )}
       </span>
     </nav>
   );
 }
 
-function Footer() {
+export function Footer() {
   return (
     <footer className="mk__foot">
       <div className="mk__wrap row" style={{ gap: 'var(--s-7)', flexWrap: 'wrap' }}>
-        <span>© 2026 AgentDrive</span>
+        <span>© 2026 AgentDisk</span>
         <span className="toolbar__spacer" />
         <Link to="/docs">Docs</Link>
         <Link to="/pricing">Pricing</Link>

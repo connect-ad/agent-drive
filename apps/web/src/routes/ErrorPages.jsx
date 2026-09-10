@@ -72,7 +72,7 @@ export function Maintenance() {
         icon={<Icon name="gear" size={19} />}
         title="We're doing quick maintenance."
       >
-        AgentDrive will be back in a few minutes. Your data isn't affected.
+        AgentDisk will be back in a few minutes. Your data isn't affected.
       </EmptyState>
     </Centered>
   );

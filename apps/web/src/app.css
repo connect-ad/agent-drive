@@ -4,7 +4,7 @@
 
 /* --- Drawer (design-system gap; see components-local/Drawer.jsx) --- */
 .dw{position:fixed;inset:0;z-index:80;display:flex;justify-content:flex-end}
-.dw__scrim{position:absolute;inset:0;background:oklch(0.19 0.012 262/0.34);
+.dw__scrim{position:absolute;inset:0;background:var(--scrim);
   animation:ad-fade var(--d-2) var(--ease)}
 .dw__panel{position:relative;width:min(420px,100%);background:var(--surface);
   border-left:1px solid var(--line);box-shadow:var(--sh-4);display:flex;
@@ -80,7 +80,7 @@
 .auth__card{background:var(--surface);border:1px solid var(--line);
   border-radius:var(--r-3);padding:var(--s-8);display:flex;flex-direction:column;
   gap:var(--s-6)}
-.auth__h1{font-size:var(--t-21);font-weight:var(--w-semi);
+.auth__h1{font-family:var(--font-display);font-size:var(--t-21);font-weight:var(--w-semi);
   letter-spacing:var(--tr-snug);color:var(--ink)}
 .auth__sub{font-size:var(--t-13);color:var(--ink-2);line-height:var(--lh-loose);
   text-wrap:pretty}
@@ -96,23 +96,23 @@
 .mk{background:var(--paper);min-height:100vh}
 .mk__nav{position:sticky;top:0;z-index:30;display:flex;align-items:center;
   gap:var(--s-6);height:var(--topbar-h);padding:0 var(--s-8);
-  border-bottom:1px solid var(--line);background:oklch(1 0 0/0.82);
+  border-bottom:1px solid var(--line);background:color-mix(in srgb,var(--surface) 82%,transparent);
   backdrop-filter:blur(8px)}
 .mk__navlinks{display:flex;align-items:center;gap:var(--s-7);margin-left:auto}
 .mk__wrap{max-width:1120px;margin:0 auto;padding:0 var(--s-8)}
 .mk__hero{padding:var(--s-13) 0 var(--s-12);display:grid;
   grid-template-columns:1fr 1fr;gap:var(--s-10);align-items:center}
-.mk__h1{font-size:var(--t-52);line-height:var(--lh-tight);
+.mk__h1{font-family:var(--font-display);font-size:var(--t-52);line-height:var(--lh-tight);
   letter-spacing:var(--tr-tight);font-weight:var(--w-semi);color:var(--ink);
   text-wrap:balance}
 .mk__lead{font-size:var(--t-16);line-height:var(--lh-loose);color:var(--ink-2);
   max-width:52ch;text-wrap:pretty;margin-top:var(--s-6)}
 .mk__ctas{display:flex;gap:var(--s-4);margin-top:var(--s-8);flex-wrap:wrap}
 .mk__section{padding:var(--s-12) 0;border-top:1px solid var(--line)}
-.mk__eyebrow{font-size:var(--t-12);font-weight:var(--w-semi);
+.mk__eyebrow{font-family:var(--font-mono);font-size:var(--t-11);font-weight:var(--w-med);
   letter-spacing:var(--tr-caps);text-transform:uppercase;color:var(--accent-ink)}
-.mk__h2{font-size:var(--t-32);line-height:var(--lh-snug);
-  letter-spacing:var(--tr-tight);font-weight:var(--w-semi);color:var(--ink);
+.mk__h2{font-family:var(--font-display);font-size:var(--t-32);line-height:var(--lh-snug);
+  letter-spacing:var(--tr-mid);font-weight:var(--w-semi);color:var(--ink);
   margin-top:var(--s-3);text-wrap:balance}
 .mk__grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--s-6);
   margin-top:var(--s-8)}
@@ -121,7 +121,7 @@
 .mk__card{background:var(--surface);border:1px solid var(--line);
   border-radius:var(--r-3);padding:var(--s-7);display:flex;
   flex-direction:column;gap:var(--s-4)}
-.mk__card h3{font-size:var(--t-16);font-weight:var(--w-semi);color:var(--ink);
+.mk__card h3{font-family:var(--font-display);font-size:var(--t-16);font-weight:var(--w-semi);color:var(--ink);
   letter-spacing:var(--tr-snug)}
 .mk__card p{font-size:var(--t-13);color:var(--ink-2);line-height:var(--lh-loose);
   text-wrap:pretty}
@@ -141,8 +141,8 @@
   border:1px solid var(--line);border-radius:var(--r-3);padding:var(--s-8);
   display:flex;flex-direction:column;gap:var(--s-5)}
 .mk__plan--pop{border-color:var(--accent);box-shadow:var(--ring)}
-.mk__price{font-size:var(--t-40);font-weight:var(--w-semi);
-  letter-spacing:var(--tr-tight);color:var(--ink);
+.mk__price{font-family:var(--font-display);font-size:var(--t-40);font-weight:var(--w-semi);
+  letter-spacing:var(--tr-mid);color:var(--ink);
   font-variant-numeric:tabular-nums;line-height:1}
 .mk__feats{list-style:none;display:flex;flex-direction:column;gap:var(--s-4);
   font-size:var(--t-13);color:var(--ink-2)}
@@ -178,3 +178,20 @@
   font-family:var(--font-mono);font-size:var(--t-12);
   border-radius:var(--r-1);transition:color var(--d-2) var(--ease)}
 .wsid__copy:hover{color:var(--accent-ink)}
+
+/* --- top-bar placements for the two local menus ---
+   Both were written for the sidebar: the workspace switcher as a full-width
+   card, the account menu dropping upward off the bottom of the viewport. In
+   the top bar the switcher is an inline control and both panels drop down. */
+.wsx__menu--right{left:auto;right:0;width:max(236px,100%)}
+.shell__user--bar{width:auto;max-width:220px;height:34px;padding:var(--s-2) var(--s-3) var(--s-2) var(--s-2);
+  border:1px solid var(--line);border-radius:var(--r-full);background:var(--surface-2)}
+.shell__user--bar:hover{border-color:var(--line-2);background:var(--surface-2)}
+/* The email line is the sidebar's second row; in a pill it makes the control
+   tall and pushes the top bar out of its 58px. The menu itself still shows it. */
+.shell__user--bar span span:last-child{display:none!important}
+.shell__user--bar span span:first-child{font-size:var(--t-13);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media (max-width:900px){
+  /* Name too — at this width the pill is just the avatar and the chevron. */
+  .shell__user--bar span span{display:none!important}
+}

@@ -16,13 +16,14 @@ import { Icon } from '../components/index.js';
  * and styled only with `.wsx__*` tokens so the two controls in this footer are
  * indistinguishable from one another. Both should be upstreamed together.
  *
- * The menu opens *upward* — it sits at the bottom of the viewport, and the
- * shared `.wsx__menu` drops downward off-screen from here.
+ * `align` decides which way it opens. It was written for the sidebar footer,
+ * where the shared `.wsx__menu` would have dropped off the bottom of the
+ * viewport, so "up" is still the default. The top bar passes "down".
  *
  * Actions arrive as props rather than from `useAuth()` so this stays a piece of
  * UI with one job; `App.jsx` decides what signing out means.
  */
-export default function AccountMenu({ name, email, profileHref, onNavigate, onSignOut }) {
+export default function AccountMenu({ name, email, profileHref, onNavigate, onSignOut, align = "up" }) {
   const [open, setOpen] = useState(false);
   const root = useRef(null);
   const trigger = useRef(null);
@@ -54,7 +55,7 @@ export default function AccountMenu({ name, email, profileHref, onNavigate, onSi
     <div className="wsx" ref={root}>
       <button
         type="button"
-        className="shell__user"
+        className={align === "up" ? "shell__user" : "shell__user shell__user--bar"}
         ref={trigger}
         aria-haspopup="menu"
         aria-expanded={open}
@@ -69,7 +70,7 @@ export default function AccountMenu({ name, email, profileHref, onNavigate, onSi
       </button>
 
       {open ? (
-        <div className="wsx__menu wsx__menu--up" role="menu" aria-label="Account">
+        <div className={`wsx__menu ${align === "up" ? "wsx__menu--up" : "wsx__menu--right"}`} role="menu" aria-label="Account">
           <button
             type="button"
             role="menuitem"

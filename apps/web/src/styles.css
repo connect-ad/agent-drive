@@ -1,29 +1,60 @@
-@import url('https://fonts.googleapis.com/css2?family=Public+Sans:ital,wght@0,300..700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
 
 /* ==========================================================================
    AgentDisk Design System — tokens
-   Infrastructure-grade: light cool ground, hairline rules, dense type,
-   one indigo accent, mono for every machine-readable string.
+   Imported from Claude Design (`AgentDisk Design System.dc.html`, v1.0).
+
+   ── Why the token NAMES did not change ───────────────────────────────────
+   The 23 components in `src/components/` are a byte-verified mirror of the
+   Claude Design project and are read-only (CLAUDE.md). They reference colour,
+   space and type only through these custom properties, so redefining the
+   properties re-themes every one of them without editing a single component
+   and without forking the mirror.
+
+   The new design ships its own names (--bg, --surf, --tx, --acc …). Those are
+   defined below too, as aliases, so hand-written code in `src/routes/` and
+   `src/components-local/` can use whichever vocabulary reads better at the
+   call site. They are the same values, not a second palette.
+
+   ── Why hex, and not oklch ───────────────────────────────────────────────
+   The previous palette was authored in oklch. These values arrive from the
+   design as hex, and converting them would introduce rounding drift between
+   the spec and the build for no benefit. The design's own contrast table
+   (WCAG 2.1 AA in both modes) was computed against these exact hex values.
+
+   ── Light is the base; dark follows the reader's system setting ───────────
+   Both palettes come from the design. The prototype's `colourMode` prop
+   defaults to "dark", but that is a canvas preview default in the same family
+   as `frame: Desktop` — it is not a statement that the product ships dark to
+   everyone. Following `prefers-color-scheme` adds no new control to the UI,
+   honours the choice the reader already made in their OS, and uses both
+   palettes exactly as drawn. Forcing dark on everyone is a one-line change
+   here if that is wanted instead.
    ========================================================================== */
 
 :root{
-  /* --- type families --- */
-  --font-sans:'Public Sans','Helvetica Neue',Helvetica,Arial,sans-serif;
-  --font-mono:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  /* --- type families ---
+     Outfit carries display and headings; IBM Plex Sans the interface; IBM Plex
+     Mono every machine-readable string. --font-display is new: the previous
+     system had one sans for both roles. */
+  --font-display:'Outfit',system-ui,-apple-system,'Segoe UI',sans-serif;
+  --font-sans:'IBM Plex Sans',system-ui,-apple-system,'Segoe UI',sans-serif;
+  --font-mono:'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
 
   /* --- type scale (px, dense UI base of 14) --- */
   --t-10:10px; --t-11:11px; --t-12:12px; --t-13:13px; --t-14:14px; --t-16:16px;
   --t-18:18px; --t-21:21px; --t-26:26px; --t-32:32px; --t-40:40px; --t-52:52px;
 
-  --lh-tight:1.15; /* @kind font */
-  --lh-snug:1.3; /* @kind font */
+  --lh-tight:1.04; /* @kind font */
+  --lh-snug:1.25; /* @kind font */
   --lh-normal:1.5; /* @kind font */
   --lh-loose:1.65; /* @kind font */
-  --tr-tight:-0.02em; /* @kind font */
-  --tr-snug:-0.011em; /* @kind font */
+  --tr-tight:-0.035em; /* @kind font */
+  --tr-mid:-0.03em; /* @kind font */
+  --tr-snug:-0.025em; /* @kind font */
   --tr-none:0; /* @kind font */
   --tr-wide:0.02em; /* @kind font */
-  --tr-caps:0.08em; /* @kind font */
+  --tr-caps:0.11em; /* @kind font */
 
   --w-light:300; /* @kind font */
   --w-reg:400; /* @kind font */
@@ -31,59 +62,91 @@
   --w-semi:600; /* @kind font */
   --w-bold:700; /* @kind font */
 
-  /* --- neutrals (cool) --- */
-  --ink:oklch(0.19 0.012 262);
-  --ink-2:oklch(0.43 0.014 262);
-  --ink-3:oklch(0.575 0.012 262);
-  --ink-4:oklch(0.70 0.010 262);
-  --paper:oklch(0.988 0.002 262);
-  --surface:oklch(1 0 0);
-  --surface-2:oklch(0.972 0.003 262);
-  --surface-3:oklch(0.948 0.005 262);
-  --line:oklch(0.912 0.006 262);
-  --line-2:oklch(0.855 0.008 262);
-  --line-3:oklch(0.79 0.010 262);
+  /* ---------------------------------------------------------------- light ---
+     The design's LIGHT palette. Names on the left are the ones the vendored
+     components already use; the design's own names follow further down. */
 
-  /* --- accent: deep indigo --- */
-  --accent:oklch(0.475 0.168 262);
-  --accent-hover:oklch(0.415 0.168 262);
-  --accent-active:oklch(0.365 0.155 262);
-  --accent-ink:oklch(0.40 0.168 262);
-  --accent-soft:oklch(0.962 0.022 262);
-  --accent-soft-2:oklch(0.925 0.042 262);
-  --accent-line:oklch(0.855 0.062 262);
-  --on-accent:oklch(0.995 0.004 262);
+  /* --- neutrals --- */
+  --ink:#111621;        /* design --tx   */
+  --ink-2:#525C6B;      /* design --tx2  */
+  --ink-3:#5F6875;      /* design --tx3  */
+  --ink-4:#8B94A3;      /* derived: one step lighter than --tx3, for disabled text */
+  --paper:#F6F7F9;      /* design --bg    */
+  --surface:#FFFFFF;    /* design --surf  */
+  --surface-2:#F4F6F9;  /* design --surf2 */
+  --surface-3:#EBEEF3;  /* design --surf3 */
+  --line:#E2E6EC;       /* design --bd    */
+  --line-2:#C9D0DA;     /* design --bd2   */
+  --line-3:#B4BDC9;     /* derived: one step darker than --bd2, for hover borders */
+
+  /* --- accent: violet.
+     The Dashboard prototype drifted to an indigo accent (#4F46E5 / #8B98FF).
+     The design-system document is the authority — it states "one palette …
+     applied across the marketing site, the auth pages and the dashboard
+     shell" — and it matches the Site file, so violet is canonical. */
+  --accent:#6D28D9;         /* design --acc     */
+  --accent-hover:#5B21B6;
+  --accent-active:#4C1D95;
+  --accent-ink:#5B21B6;     /* accent as TEXT on a light ground, so it clears AA */
+  --accent-soft:#F3EDFE;    /* design --accSoft */
+  --accent-soft-2:#E7DCFC;  /* derived: between soft and line, for selection */
+  --accent-line:#D7C4FB;    /* design --accBd   */
+  --on-accent:#FFFFFF;      /* design --accInk  */
 
   /* --- semantics --- */
-  --ok:oklch(0.505 0.128 155); --ok-soft:oklch(0.962 0.032 155); --ok-line:oklch(0.865 0.062 155);
-  --warn:oklch(0.585 0.132 68); --warn-soft:oklch(0.968 0.040 68); --warn-line:oklch(0.875 0.075 68);
-  --danger:oklch(0.515 0.192 25); --danger-hover:oklch(0.455 0.192 25);
-  --danger-soft:oklch(0.966 0.026 25); --danger-line:oklch(0.878 0.058 25);
+  --ok:#15803D; --ok-soft:#ECFDF3; --ok-line:#B7E4C7; --ok-ink:#166534;
+  --warn:#B45309; --warn-soft:#FEF6E7; --warn-line:#F0D9A8; --warn-ink:#92400E;
+  --danger:#DC2626; --danger-hover:#B91C1C;
+  --danger-soft:#FEF1F1; --danger-line:#F3C4C4; --danger-ink:#B42318;
 
-  /* --- dark surface (code, MCP config, terminal) --- */
-  --dark:oklch(0.215 0.016 262);
-  --dark-2:oklch(0.275 0.018 262);
-  --dark-line:oklch(0.345 0.018 262);
-  --dark-ink:oklch(0.925 0.006 262);
-  --dark-ink-2:oklch(0.715 0.012 262);
-  --dark-accent:oklch(0.78 0.115 262);
-  --dark-ok:oklch(0.79 0.135 155);
-  --dark-warn:oklch(0.83 0.125 78);
+  /* --- code surface (CodeBlock, MCP config, terminal).
+     In the previous system this was always a dark panel. The new design draws
+     code light in light mode and dark in dark mode, so these follow the mode
+     rather than staying dark unconditionally. */
+  --dark:#F7F8FB;        /* design --code   */
+  --dark-2:#EBEEF3;
+  --dark-line:#E2E6EC;
+  --dark-ink:#1E2530;    /* design --codeTx */
+  --dark-ink-2:#525C6B;
+  --dark-accent:#6D28D9;
+  --dark-ok:#15803D;
+  --dark-warn:#B45309;
+
+  /* --- scrim and shadow, from the design --- */
+  --scrim:rgba(17,22,33,.45);
+  --shadow-tint:rgba(17,22,33,.16);
+
+  /* --- the design's own vocabulary, aliased onto the same values.
+     For hand-written code in src/routes/ and src/components-local/. Aliases,
+     not a second palette: change a value above and both names move. */
+  --bg:var(--paper);
+  --surf:var(--surface); --surf2:var(--surface-2); --surf3:var(--surface-3);
+  --bd:var(--line); --bd2:var(--line-2);
+  --tx:var(--ink); --tx2:var(--ink-2); --tx3:var(--ink-3);
+  --acc:var(--accent); --accSoft:var(--accent-soft); --accBd:var(--accent-line);
+  --accInk:var(--on-accent);
+  --okSoft:var(--ok-soft); --okBd:var(--ok-line); --okTx:var(--ok-ink);
+  --warnSoft:var(--warn-soft); --warnBd:var(--warn-line); --warnTx:var(--warn-ink);
+  --dngr:var(--danger); --dngrSoft:var(--danger-soft);
+  --dngrBd:var(--danger-line); --dngrTx:var(--danger-ink);
+  --code:var(--dark); --codeTx:var(--dark-ink);
 
   /* --- space (4px base) --- */
   --s-1:2px; --s-2:4px; --s-3:6px; --s-4:8px; --s-5:12px; --s-6:16px;
   --s-7:20px; --s-8:24px; --s-9:32px; --s-10:40px; --s-11:56px; --s-12:72px; --s-13:96px;
 
-  /* --- radius: small = technical --- */
-  --r-1:3px; --r-2:5px; --r-3:8px; --r-4:12px; --r-full:999px;
+  /* --- radius. The new design is softer than the old one: it draws cards at
+     11–14px and controls at 7–10px, where the previous system topped out at
+     12px and called small radii "technical". --r-full is unchanged. --- */
+  --r-1:5px; --r-2:8px; --r-3:10px; --r-4:14px; --r-full:99px;
 
   /* --- elevation: sparse, only for things that float --- */
-  --sh-1:0 1px 2px oklch(0.19 0.012 262/0.06);
-  --sh-2:0 2px 4px oklch(0.19 0.012 262/0.06),0 1px 2px oklch(0.19 0.012 262/0.04);
-  --sh-3:0 8px 24px oklch(0.19 0.012 262/0.10),0 2px 6px oklch(0.19 0.012 262/0.06);
-  --sh-4:0 24px 56px oklch(0.19 0.012 262/0.16),0 4px 12px oklch(0.19 0.012 262/0.08);
-  --ring:0 0 0 3px oklch(0.475 0.168 262/0.22);
-  --ring-danger:0 0 0 3px oklch(0.515 0.192 25/0.22);
+  --sh-1:0 1px 2px var(--shadow-tint);
+  --sh-2:0 2px 4px var(--shadow-tint),0 1px 2px var(--shadow-tint);
+  --sh-3:0 8px 24px var(--shadow-tint),0 2px 6px var(--shadow-tint);
+  --sh-4:0 24px 56px var(--shadow-tint),0 4px 12px var(--shadow-tint);
+  --ring:0 0 0 3px color-mix(in srgb,var(--accent) 22%,transparent);
+  --ring-danger:0 0 0 3px color-mix(in srgb,var(--danger) 22%,transparent);
 
   /* --- motion: short, functional --- */
   --ease:cubic-bezier(0.2,0,0.15,1); /* @kind other */
@@ -95,9 +158,79 @@
   /* --- layout --- */
   --nav-w:236px; /* @kind spacing */
   --nav-w-collapsed:56px; /* @kind spacing */
-  --topbar-h:52px; /* @kind spacing */
+  --topbar-h:58px; /* @kind spacing */
   --measure:68ch; /* @kind other */
 }
+
+/* ==========================================================================
+   Dark
+
+   Only the palette is restated. The alias block above resolves through var(),
+   and var() is resolved where it is used, not where it is declared — so
+   --bg, --surf, --acc and the rest follow these values automatically. The
+   space, type, radius, motion and layout scales are mode-independent and are
+   deliberately not repeated.
+
+   Declared three times over so all three states work: the media query for
+   readers who never touched a control, [data-theme="dark"] so an explicit
+   choice can win over a light system setting, and the :not([data-theme="light"])
+   guard so an explicit *light* choice survives a dark system setting.
+   ========================================================================== */
+
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --ink:#E9ECF1; --ink-2:#9AA3B2; --ink-3:#909AA8; --ink-4:#6F7889;
+    --paper:#0B0D11; --surface:#12151B; --surface-2:#171B22; --surface-3:#1F242D;
+    --line:#252B35; --line-2:#343C49; --line-3:#434C5B;
+
+    --accent:#B592FF; --accent-hover:#C4A8FF; --accent-active:#D3BEFF;
+    --accent-ink:#B592FF;
+    --accent-soft:#1E1533; --accent-soft-2:#2A1D47; --accent-line:#452F6E;
+    --on-accent:#0B0D11;
+
+    --ok:#34D399; --ok-soft:#0E251C; --ok-line:#1F4D3B; --ok-ink:#4ADE9B;
+    --warn:#FBBF24; --warn-soft:#271E0B; --warn-line:#544015; --warn-ink:#FCD34D;
+    --danger:#F87171; --danger-hover:#FCA5A5;
+    --danger-soft:#2A1315; --danger-line:#5A2A2C; --danger-ink:#FCA5A5;
+
+    --dark:#0E1116; --dark-2:#171B22; --dark-line:#252B35;
+    --dark-ink:#C6CEDB; --dark-ink-2:#9AA3B2;
+    --dark-accent:#B592FF; --dark-ok:#34D399; --dark-warn:#FBBF24;
+
+    --scrim:rgba(5,6,9,.7);
+    --shadow-tint:rgba(0,0,0,.55);
+  }
+}
+
+:root[data-theme="dark"]{
+  --ink:#E9ECF1; --ink-2:#9AA3B2; --ink-3:#909AA8; --ink-4:#6F7889;
+  --paper:#0B0D11; --surface:#12151B; --surface-2:#171B22; --surface-3:#1F242D;
+  --line:#252B35; --line-2:#343C49; --line-3:#434C5B;
+
+  --accent:#B592FF; --accent-hover:#C4A8FF; --accent-active:#D3BEFF;
+  --accent-ink:#B592FF;
+  --accent-soft:#1E1533; --accent-soft-2:#2A1D47; --accent-line:#452F6E;
+  --on-accent:#0B0D11;
+
+  --ok:#34D399; --ok-soft:#0E251C; --ok-line:#1F4D3B; --ok-ink:#4ADE9B;
+  --warn:#FBBF24; --warn-soft:#271E0B; --warn-line:#544015; --warn-ink:#FCD34D;
+  --danger:#F87171; --danger-hover:#FCA5A5;
+  --danger-soft:#2A1315; --danger-line:#5A2A2C; --danger-ink:#FCA5A5;
+
+  --dark:#0E1116; --dark-2:#171B22; --dark-line:#252B35;
+  --dark-ink:#C6CEDB; --dark-ink-2:#9AA3B2;
+  --dark-accent:#B592FF; --dark-ok:#34D399; --dark-warn:#FBBF24;
+
+  --scrim:rgba(5,6,9,.7);
+  --shadow-tint:rgba(0,0,0,.55);
+}
+
+/* The browser's own widgets — scrollbars, form controls, the canvas behind a
+   short page — need telling too, or they stay light under a dark palette. */
+:root{color-scheme:light}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){color-scheme:dark}}
+:root[data-theme="dark"]{color-scheme:dark}
+:root[data-theme="light"]{color-scheme:light}
 
 *,*::before,*::after{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%}
@@ -116,10 +249,10 @@ table{border-collapse:collapse;border-spacing:0}
 /* ==========================================================================
    Typography utilities
    ========================================================================== */
-.ad-display{font-size:var(--t-40);line-height:var(--lh-tight);letter-spacing:var(--tr-tight);font-weight:var(--w-semi)}
-.ad-h1{font-size:var(--t-26);line-height:var(--lh-snug);letter-spacing:var(--tr-snug);font-weight:var(--w-semi)}
-.ad-h2{font-size:var(--t-21);line-height:var(--lh-snug);letter-spacing:var(--tr-snug);font-weight:var(--w-semi)}
-.ad-h3{font-size:var(--t-16);line-height:var(--lh-snug);letter-spacing:var(--tr-snug);font-weight:var(--w-semi)}
+.ad-display{font-family:var(--font-display);font-size:var(--t-40);line-height:var(--lh-tight);letter-spacing:var(--tr-tight);font-weight:var(--w-semi)}
+.ad-h1{font-family:var(--font-display);font-size:var(--t-26);line-height:var(--lh-snug);letter-spacing:var(--tr-snug);font-weight:var(--w-semi)}
+.ad-h2{font-family:var(--font-display);font-size:var(--t-21);line-height:var(--lh-snug);letter-spacing:var(--tr-snug);font-weight:var(--w-semi)}
+.ad-h3{font-family:var(--font-display);font-size:var(--t-16);line-height:var(--lh-snug);letter-spacing:var(--tr-snug);font-weight:var(--w-semi)}
 .ad-h4{font-size:var(--t-14);line-height:var(--lh-snug);font-weight:var(--w-semi)}
 .ad-body{font-size:var(--t-14);line-height:var(--lh-normal)}
 .ad-body-lg{font-size:var(--t-16);line-height:var(--lh-loose)}
@@ -320,7 +453,7 @@ code.inline{font-family:var(--font-mono);font-size:0.9em;background:var(--surfac
 /* ==========================================================================
    Overlay: modal / drawer / toast / menu
    ========================================================================== */
-.scrim{position:fixed;inset:0;background:oklch(0.19 0.012 262/0.34);display:grid;place-items:center;padding:var(--s-7);z-index:60;animation:ad-fade var(--d-2) var(--ease)}
+.scrim{position:fixed;inset:0;background:var(--scrim);display:grid;place-items:center;padding:var(--s-7);z-index:60;animation:ad-fade var(--d-2) var(--ease)}
 @keyframes ad-fade{from{opacity:0}to{opacity:1}}
 .modal{background:var(--surface);border:1px solid var(--line-2);border-radius:var(--r-4);box-shadow:var(--sh-4);width:100%;max-width:440px;max-height:100%;display:flex;flex-direction:column;animation:ad-rise var(--d-3) var(--ease-out)}
 @keyframes ad-rise{from{opacity:0;transform:translateY(8px) scale(.99)}to{opacity:1;transform:none}}
@@ -384,34 +517,60 @@ code.inline{font-family:var(--font-mono);font-size:0.9em;background:var(--surfac
 /* ==========================================================================
    App shell
    ========================================================================== */
-.shell{display:grid;grid-template-columns:var(--nav-w) 1fr;min-height:100vh;background:var(--paper)}
-.shell__nav{display:flex;flex-direction:column;background:var(--surface);border-right:1px solid var(--line);position:sticky;top:0;height:100vh;overflow:hidden}
-.shell__brand{display:flex;align-items:center;gap:var(--s-4);height:var(--topbar-h);padding:0 var(--s-6);border-bottom:1px solid var(--line);flex:none}
-.shell__logo{width:20px;height:20px;border-radius:var(--r-1);background:var(--accent);display:grid;place-items:center;color:var(--on-accent);font-family:var(--font-mono);font-size:var(--t-11);font-weight:var(--w-semi);flex:none}
-.shell__wordmark{font-size:var(--t-14);font-weight:var(--w-semi);letter-spacing:var(--tr-snug);color:var(--ink)}
-.shell__ws{padding:var(--s-5) var(--s-5) var(--s-4);flex:none}
+.shell{display:flex;flex-direction:column;min-height:100vh;background:var(--paper)}
+
+/* --- Layer 0: top bar --- */
+.shell__top{display:flex;align-items:center;gap:var(--s-4);min-height:var(--topbar-h);padding:var(--s-3) var(--s-7);border-bottom:1px solid var(--line);background:var(--surface);position:sticky;top:0;z-index:40;flex:none}
+.shell__brand{display:flex;align-items:center;gap:var(--s-4);flex:none}
+.shell__logo{width:28px;height:28px;border-radius:var(--r-2);background:var(--accent);display:grid;place-items:center;color:var(--on-accent);font-family:var(--font-mono);font-size:var(--t-13);font-weight:var(--w-semi);flex:none}
+.shell__wordmark{font-family:var(--font-display);font-size:var(--t-16);font-weight:var(--w-semi);letter-spacing:var(--tr-snug);color:var(--ink)}
+.shell__rule{width:1px;height:22px;background:var(--line);flex:none;margin:0 var(--s-2)}
+.shell__ws{min-width:0;flex:0 1 auto}
+.shell__topactions{margin-left:auto;display:flex;align-items:center;gap:var(--s-3);flex:none}
+
+/* The workspace switcher and account menu both sit in the top bar now, so
+   their panels drop downward. .wsx__menu--up is the sidebar-era placement and
+   is no longer used by either. */
+.shell__wsbtn--bar{width:auto;max-width:260px;padding:var(--s-2) var(--s-4);border-radius:var(--r-2)}
+
+/* --- Layer 1: workspace info strip --- */
+.shell__strip{background:var(--surface-2);border-bottom:1px solid var(--line);flex:none}
+.shell__stripinner{display:flex;align-items:center;gap:var(--s-5);padding:var(--s-4) var(--s-7);flex-wrap:wrap;min-width:0}
+.shell__stripitem{display:flex;align-items:center;gap:var(--s-3);min-width:0}
+.shell__striplabel{font-family:var(--font-mono);font-size:var(--t-10);letter-spacing:var(--tr-caps);color:var(--ink-3);flex:none}
+.shell__stripsep{width:1px;height:16px;background:var(--line);flex:none}
+
+/* --- Layer 3: tab bar --- */
+.shell__tabs{background:var(--surface);border-bottom:1px solid var(--line);position:sticky;top:var(--topbar-h);z-index:30;flex:none}
+.shell__tablist{display:flex;gap:var(--s-1);padding:0 var(--s-7);overflow-x:auto;scrollbar-width:none}
+.shell__tablist::-webkit-scrollbar{display:none}
+.shell__tab{display:flex;align-items:center;gap:var(--s-3);height:42px;padding:0 var(--s-5);font-size:var(--t-13);font-weight:var(--w-med);color:var(--ink-2);text-decoration:none;white-space:nowrap;flex:none;box-shadow:inset 0 -2px 0 0 transparent;transition:color var(--d-1) var(--ease),box-shadow var(--d-1) var(--ease)}
+.shell__tab:hover{color:var(--ink);text-decoration:none}
+.shell__tab[aria-current="page"]{color:var(--accent-ink);font-weight:var(--w-semi);box-shadow:inset 0 -2px 0 0 var(--accent)}
+.shell__tabico{flex:none;color:var(--ink-4);display:flex}
+.shell__tab:hover .shell__tabico{color:var(--ink-3)}
+.shell__tab[aria-current="page"] .shell__tabico{color:var(--accent)}
+.shell__badge{font-family:var(--font-mono);font-size:var(--t-11);color:var(--ink-4)}
+
+/* --- controls the two local menus still borrow ---
+   WorkspaceSwitcher and AccountMenu are styled entirely with these classes
+   (app.css says so, deliberately, so the two read as one family). They moved
+   from the sidebar to the top bar; the classes had to come with them. */
 .shell__wsbtn{display:flex;align-items:center;gap:var(--s-4);width:100%;padding:var(--s-4);background:var(--surface-2);border:1px solid var(--line);border-radius:var(--r-2);cursor:pointer;text-align:left;transition:background var(--d-1) var(--ease),border-color var(--d-1) var(--ease)}
 .shell__wsbtn:hover{background:var(--surface-3);border-color:var(--line-2)}
-.shell__wsmark{width:22px;height:22px;flex:none;border-radius:var(--r-1);background:var(--ink);color:var(--paper);display:grid;place-items:center;font-size:var(--t-11);font-weight:var(--w-semi)}
-.shell__wsname{font-size:var(--t-13);font-weight:var(--w-med);color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.shell__wsmark{width:20px;height:20px;flex:none;border-radius:var(--r-1);background:var(--accent-soft);border:1px solid var(--accent-line);color:var(--accent);display:grid;place-items:center;font-size:var(--t-10);font-weight:var(--w-bold)}
+.shell__wsname{font-size:var(--t-13);font-weight:var(--w-semi);color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .shell__wsmeta{font-size:var(--t-11);color:var(--ink-3)}
-.shell__scroll{flex:1;overflow-y:auto;overflow-x:hidden;padding:0 var(--s-5) var(--s-6);display:flex;flex-direction:column;gap:var(--s-7)}
-.shell__group{display:flex;flex-direction:column;gap:var(--s-1)}
-.shell__grouplabel{font-size:var(--t-11);font-weight:var(--w-semi);letter-spacing:var(--tr-caps);text-transform:uppercase;color:var(--ink-4);padding:var(--s-3) var(--s-4)}
-.shell__link{display:flex;align-items:center;gap:var(--s-4);padding:var(--s-3) var(--s-4);border-radius:var(--r-2);font-size:var(--t-13);color:var(--ink-2);text-decoration:none;transition:background var(--d-1) var(--ease),color var(--d-1) var(--ease);position:relative}
-.shell__link:hover{background:var(--surface-2);color:var(--ink);text-decoration:none}
-.shell__link[aria-current="page"]{background:var(--accent-soft);color:var(--accent-ink);font-weight:var(--w-med)}
-.shell__link[aria-current="page"] .shell__linkico{color:var(--accent)}
-.shell__linkico{flex:none;color:var(--ink-4);display:flex}
-.shell__link:hover .shell__linkico{color:var(--ink-3)}
-.shell__badge{margin-left:auto;font-family:var(--font-mono);font-size:var(--t-11);color:var(--ink-4)}
-.shell__foot{flex:none;border-top:1px solid var(--line);padding:var(--s-4) var(--s-5)}
 .shell__user{display:flex;align-items:center;gap:var(--s-4);width:100%;padding:var(--s-3);border:0;border-radius:var(--r-2);background:transparent;cursor:pointer;text-align:left;transition:background var(--d-1) var(--ease)}
 .shell__user:hover{background:var(--surface-2)}
-.shell__main{display:flex;flex-direction:column;min-width:0}
-.shell__top{display:flex;align-items:center;gap:var(--s-5);height:var(--topbar-h);padding:0 var(--s-8);border-bottom:1px solid var(--line);background:oklch(1 0 0/0.82);backdrop-filter:blur(8px);position:sticky;top:0;z-index:20;flex:none}
-.shell__topactions{margin-left:auto;display:flex;align-items:center;gap:var(--s-4)}
-.shell__page{flex:1;padding:var(--s-8);min-width:0;display:flex;flex-direction:column;gap:var(--s-7)}
+
+/* In the bar both are inline controls on one line, at the design's 34px. */
+.shell__wsbtn--bar{width:auto;max-width:260px;height:34px;padding:0 var(--s-4);border-radius:var(--r-2)}
+/* The role line is the sidebar's second row; a bar control is one line, and
+   the design shows the plan badge in that space rather than the role. */
+.shell__wsbtn--bar .shell__wsmeta{display:none}
+
+.shell__page{flex:1;padding:var(--s-8) var(--s-7);min-width:0;display:flex;flex-direction:column;gap:var(--s-7)}
 .shell__page--flush{padding:0}
 .shell__burger{display:none}
 .avatar{width:24px;height:24px;border-radius:var(--r-full);background:var(--accent-soft-2);color:var(--accent-ink);display:grid;place-items:center;font-size:var(--t-11);font-weight:var(--w-semi);flex:none;border:1px solid var(--accent-line)}
@@ -430,12 +589,14 @@ code.inline{font-family:var(--font-mono);font-size:0.9em;background:var(--surfac
 .spacer{flex:1}
 
 @media (max-width:900px){
-  .shell{grid-template-columns:1fr}
-  .shell__nav{position:fixed;inset:0 auto 0 0;width:280px;z-index:70;transform:translateX(-100%);transition:transform var(--d-3) var(--ease-out);box-shadow:var(--sh-4)}
-  .shell.is-open .shell__nav{transform:none}
-  .shell__burger{display:inline-flex}
+  /* No drawer to open: the tab bar scrolls horizontally instead, which is how
+     the design handles narrow widths. */
   .shell__page{padding:var(--s-6) var(--s-5)}
-  .shell__top{padding:0 var(--s-5)}
+  .shell__top{padding:var(--s-3) var(--s-5)}
+  .shell__tablist{padding:0 var(--s-5)}
+  .shell__stripinner{padding:var(--s-4) var(--s-5)}
+  .shell__wordmark{display:none}
+  .shell__wsbtn--bar{max-width:180px}
   .btn--md,.btn--lg{min-height:38px}
   .icon-btn{width:34px;height:34px}
 }

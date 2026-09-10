@@ -105,7 +105,7 @@ function Divider() {
     <div
       style={{
         display: 'flex', alignItems: 'center', gap: 'var(--s-3)',
-        color: 'var(--text-muted)', fontSize: 'var(--fs-1)'
+        color: 'var(--ink-3)', fontSize: 'var(--t-12)'
       }}
     >
       <span style={{ flex: 1, height: 1, background: 'var(--line)' }} aria-hidden="true" />

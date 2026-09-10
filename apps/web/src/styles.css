@@ -50,6 +50,7 @@
   --lh-normal:1.5; /* @kind font */
   --lh-loose:1.65; /* @kind font */
   --tr-tight:-0.035em; /* @kind font */
+  --tr-mid:-0.03em; /* @kind font */
   --tr-snug:-0.025em; /* @kind font */
   --tr-none:0; /* @kind font */
   --tr-wide:0.02em; /* @kind font */

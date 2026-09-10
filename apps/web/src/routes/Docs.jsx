@@ -38,7 +38,7 @@ const WHOAMI = `curl ${API_BASE}/v1/whoami \\
 function Section({ id, title, children }) {
   return (
     <section id={id} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--s-4)' }}>
-      <h2 style={{ font: 'var(--f-h3)' }}>{title}</h2>
+      <h2 className="ad-h2">{title}</h2>
       {children}
     </section>
   );
@@ -53,7 +53,7 @@ function Row({ method, path, note }) {
       <td style={{ padding: 'var(--s-2) var(--s-4)', whiteSpace: 'nowrap' }}>
         <code>{path}</code>
       </td>
-      <td style={{ padding: 'var(--s-2) var(--s-4)', color: 'var(--text-2)' }}>{note}</td>
+      <td style={{ padding: 'var(--s-2) var(--s-4)', color: 'var(--ink-2)' }}>{note}</td>
     </tr>
   );
 }
@@ -72,7 +72,7 @@ export default function Docs() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--s-9)' }}>
           <Section id="base" title="Base URL">
             <CodeBlock language="text" code={API_BASE} />
-            <p style={{ color: 'var(--text-2)' }}>
+            <p style={{ color: 'var(--ink-2)' }}>
               This is the development deployment. Every response is JSON, including errors, which
               carry a <code>code</code> and a <code>requestId</code> — quote the request ID if you
               ever need to ask us what happened.
@@ -80,13 +80,13 @@ export default function Docs() {
           </Section>
 
           <Section id="auth" title="Two kinds of credential">
-            <p style={{ color: 'var(--text-2)' }}>
+            <p style={{ color: 'var(--ink-2)' }}>
               <strong>API keys</strong> are for agents. A key is bound to one workspace when it is
               minted and cannot reach another, ever — that binding is what makes handing a key to an
               autonomous process reasonable. Keys carry scopes, so a key that only needs to read
               cannot write.
             </p>
-            <p style={{ color: 'var(--text-2)' }}>
+            <p style={{ color: 'var(--ink-2)' }}>
               <strong>Sign-in sessions</strong> are for people, and are what the dashboard uses.
               Because a person belongs to an account rather than to a single workspace, browser
               calls name the workspace they mean with a <code>?workspaceId=</code> parameter. Agents
@@ -101,21 +101,21 @@ export default function Docs() {
           </Section>
 
           <Section id="start" title="Getting a key">
-            <ol style={{ color: 'var(--text-2)', lineHeight: 1.8, paddingLeft: 'var(--s-6)' }}>
+            <ol style={{ color: 'var(--ink-2)', lineHeight: 1.8, paddingLeft: 'var(--s-6)' }}>
               <li><Link to="/signup">Create an account</Link> — a workspace is made for you.</li>
               <li>Open <strong>API keys</strong> in the sidebar and mint one.</li>
               <li>Copy it immediately. It is shown once and stored only as a hash.</li>
             </ol>
-            <p style={{ color: 'var(--text-2)' }}>
+            <p style={{ color: 'var(--ink-2)' }}>
               Agents can also provision their own trial workspace without a human account, which is
               what <Link to="/sandbox">the sandbox</Link> demonstrates.
             </p>
           </Section>
 
           <Section id="first" title="Your first calls">
-            <p style={{ color: 'var(--text-2)' }}>Confirm the key works and see what it can do:</p>
+            <p style={{ color: 'var(--ink-2)' }}>Confirm the key works and see what it can do:</p>
             <CodeBlock language="bash" code={WHOAMI} />
-            <p style={{ color: 'var(--text-2)' }}>
+            <p style={{ color: 'var(--ink-2)' }}>
               Upload a file. Files at or below 1&nbsp;MB can be sent inline; larger ones get a
               presigned URL so the bytes go straight to storage and never pass through us.
             </p>
@@ -125,7 +125,7 @@ export default function Docs() {
 
           <Section id="endpoints" title="What exists today">
             <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', font: 'var(--f-body-sm)' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--t-13)' }}>
                 <tbody>
                   <Row method="GET" path="/v1/healthz" note="Public. No credential read." />
                   <Row method="GET" path="/v1/whoami" note="Who this credential is, and its limits." />
@@ -151,7 +151,7 @@ export default function Docs() {
           </Section>
 
           <Section id="mcp" title={<>MCP server <Badge tone="warn">Not yet</Badge></>}>
-            <p style={{ color: 'var(--text-2)' }}>
+            <p style={{ color: 'var(--ink-2)' }}>
               The MCP surface is designed — ten tools over the same storage, the same scopes, the
               same isolation — but is not built yet, and <code>mcp-dev.agentdisk.io</code> does not
               answer tool calls today. It is listed here so nobody wires against it expecting it to
@@ -170,7 +170,7 @@ export default function Docs() {
   }
 }`}
             />
-            <p style={{ color: 'var(--text-2)' }}>
+            <p style={{ color: 'var(--ink-2)' }}>
               Authentication failures all return one identical body. An unknown key, a revoked key,
               an expired key and a key whose agent was disabled are deliberately
               indistinguishable — a response that told you which would tell an attacker which of

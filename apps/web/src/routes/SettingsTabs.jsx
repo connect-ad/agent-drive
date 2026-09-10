@@ -233,7 +233,7 @@ export function MembersTab() {
           </>
         }
       >
-        <p style={{ color: 'var(--text-2)' }}>
+        <p style={{ color: 'var(--ink-2)' }}>
           They lose access to this workspace immediately. Their access to other workspaces, if any,
           is unaffected.
         </p>

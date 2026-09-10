@@ -49,8 +49,8 @@ function LegalShell({ title, updated, children }) {
 function Clause({ n, heading, children }) {
   return (
     <section>
-      <h2 style={{ font: 'var(--f-h4)', marginBottom: 'var(--s-2)' }}>{n}. {heading}</h2>
-      <p style={{ color: 'var(--text-2)', lineHeight: 1.65 }}>{children}</p>
+      <h2 className="ad-h3" style={{ marginBottom: 'var(--s-2)' }}>{n}. {heading}</h2>
+      <p style={{ color: 'var(--ink-2)', lineHeight: 1.65 }}>{children}</p>
     </section>
   );
 }

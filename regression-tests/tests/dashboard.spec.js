@@ -115,14 +115,23 @@ test.describe('workspace screens', () => {
 
   test('the account menu still offers sign-out', async ({ page }) => {
     await page.goto(ws);
-    // The control may be a button that opens a menu, or a direct link. Either
-    // is fine; having no way to sign out is not.
-    const trigger = page.getByRole('button', { name: /account|profile|menu|sign out/i }).first();
-    if (await trigger.count()) await trigger.click().catch(() => {});
+
+    // Wait for the trigger rather than count() it. count() does not auto-wait,
+    // so on a cold load it returns 0, the click is skipped, and the assertion
+    // below fails for a menu that was never opened — which is what happened
+    // here and looked exactly like a real regression.
+    //
+    // Absence of the control is a failure, not a reason to skip.
+    const trigger = page.getByRole('button', { name: /account|profile|menu/i }).first();
+    await expect(trigger, 'no account-menu control in the shell')
+      .toBeVisible({ timeout: 20_000 });
+    await trigger.click();
+
     await expect(
-      page.getByRole('button', { name: /sign out|log out/i })
-        .or(page.getByRole('menuitem', { name: /sign out|log out/i }))
-        .first()
+      page.getByRole('menuitem', { name: /sign out|log out/i })
+        .or(page.getByRole('button', { name: /sign out|log out/i }))
+        .first(),
+      'the account menu opened but offers no way to sign out'
     ).toBeVisible({ timeout: 10_000 });
   });
 

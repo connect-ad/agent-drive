@@ -16,6 +16,7 @@
  */
 
 import { test, expect } from '@playwright/test';
+import { workspaceRoot } from '../lib-ws.mjs';
 
 /** Bogus segments: an ID-shaped one, a slug-shaped one, and plain nonsense. */
 const BOGUS = [
@@ -24,17 +25,8 @@ const BOGUS = [
   'ws-abc',
 ];
 
-let realWs;
-let realSegment;
-
-test.beforeAll(async ({ browser }) => {
-  const page = await browser.newPage();
-  await page.goto('/app');
-  await page.waitForURL(u => /^\/w\/[^/]+/.test(u.pathname), { timeout: 30_000 });
-  realWs = new URL(page.url()).pathname.split('/').slice(0, 3).join('/');
-  realSegment = realWs.split('/')[2];
-  await page.close();
-});
+const realWs = workspaceRoot();
+const realSegment = realWs.split('/')[2];
 
 test('a real workspace still resolves', async ({ page }) => {
   await page.goto(realWs);

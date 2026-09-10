@@ -59,6 +59,21 @@ export default function AccountMenu({ name, email, profileHref, onNavigate, onSi
         ref={trigger}
         aria-haspopup="menu"
         aria-expanded={open}
+        /*
+         * Names the control, not just the person in it.
+         *
+         * In the sidebar this button sat under a heading and beside a workspace
+         * switcher, and "Sign out" was additionally a button of its own in the
+         * top bar, so nothing had to say what the card was for. In the top bar
+         * it is a bare pill whose only text is the signed-in address, and sign
+         * out now lives solely behind it — leaving the name as the address alone
+         * gives a screen-reader user no reason to open it, and the regression
+         * suite caught exactly that.
+         *
+         * The visible text is a substring of this label, which is what keeps
+         * voice control working: "click kernelv5…" still matches.
+         */
+        aria-label={`Account menu for ${label}`}
         onClick={() => setOpen(o => !o)}
       >
         <span className="avatar" aria-hidden="true">{label.slice(0, 1).toUpperCase()}</span>
